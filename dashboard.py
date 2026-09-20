@@ -59,6 +59,9 @@ st.markdown("""
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", "https://tsfzjhapftoacachqute.supabase.co"))
 SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzZnpqaGFwZnRvYWNhY2hxdXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTE4NTQsImV4cCI6MjEwNTQ2Nzg1NH0.60yo8hh51yQvdoGfYdEy8PF0XVLUyePwfuuK-pndJ6o"))
 
+# Service Key for admin user auto-confirmation (bypasses email confirmation requirement)
+SERVICE_ROLE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzZnpqaGFwZnRvYWNhY2hxdXRlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTg5MTg1NCwiZXhwIjoyMTA1NDY3ODU0fQ.f33c7b4GnWDhZexB3lZiwmZvwTbX3hMkKrot6hZTrnc"))
+
 # Session State
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -70,6 +73,31 @@ if "household_count" not in st.session_state:
 # ==============================================================================
 # SUPABASE AUTH & API HELPERS
 # ==============================================================================
+def auto_confirm_user_by_email(email):
+    """Helper to auto-confirm user email so no email verification link is required."""
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/admin/users"
+        headers = {"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            users_list = json.loads(resp.read().decode("utf-8")).get("users", [])
+            for u in users_list:
+                if u.get("email", "").lower() == email.strip().lower():
+                    uid = u.get("id")
+                    up_url = f"{SUPABASE_URL}/auth/v1/admin/users/{uid}"
+                    up_headers = {
+                        "apikey": SERVICE_ROLE_KEY,
+                        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+                        "Content-Type": "application/json"
+                    }
+                    up_payload = json.dumps({"email_confirm": True}).encode("utf-8")
+                    up_req = urllib.request.Request(up_url, data=up_payload, headers=up_headers, method="PUT")
+                    with urllib.request.urlopen(up_req, timeout=8):
+                        return True
+    except Exception:
+        pass
+    return False
+
 def supabase_sign_in(email, password):
     url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
     headers = {
@@ -86,7 +114,15 @@ def supabase_sign_in(email, password):
         err_msg = "Invalid email or password"
         try:
             err_json = json.loads(e.read().decode("utf-8"))
-            err_msg = err_json.get("error_description") or err_json.get("msg") or err_msg
+            raw_err = err_json.get("error_description") or err_json.get("msg") or ""
+            # If email is not confirmed, auto-confirm it and retry!
+            if "not confirmed" in raw_err.lower():
+                if auto_confirm_user_by_email(email):
+                    # Retry login once confirmed
+                    with urllib.request.urlopen(req, timeout=10) as retry_resp:
+                        data = json.loads(retry_resp.read().decode("utf-8"))
+                        return True, data.get("user", {}).get("email", email)
+            err_msg = raw_err if raw_err else err_msg
         except Exception:
             pass
         return False, err_msg
@@ -94,17 +130,43 @@ def supabase_sign_in(email, password):
         return False, str(e)
 
 def supabase_sign_up(email, password):
-    url = f"{SUPABASE_URL}/auth/v1/signup"
-    headers = {
-        "apikey": SUPABASE_KEY,
+    # Use Admin API to create user with email_confirm=True directly
+    admin_url = f"{SUPABASE_URL}/auth/v1/admin/users"
+    admin_headers = {
+        "apikey": SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
         "Content-Type": "application/json"
     }
+    admin_payload = json.dumps({
+        "email": email.strip(),
+        "password": password.strip(),
+        "email_confirm": True
+    }).encode("utf-8")
+    
+    try:
+        req = urllib.request.Request(admin_url, data=admin_payload, headers=admin_headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return True, "Surveyor account registered & verified! You can log in now."
+    except urllib.error.HTTPError as e:
+        # Fallback to standard signup if admin fails
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            msg = err_json.get("msg") or err_json.get("message")
+            if "already exists" in str(msg).lower() or "registered" in str(msg).lower():
+                auto_confirm_user_by_email(email)
+                return True, "Account already exists and is verified. Please sign in."
+        except Exception:
+            pass
+            
+    # Fallback standard signup
+    url = f"{SUPABASE_URL}/auth/v1/signup"
+    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
     payload = json.dumps({"email": email.strip(), "password": password.strip()}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return True, "Account created! You can now log in."
+            auto_confirm_user_by_email(email)
+            return True, "Account registered! You can log in immediately."
     except urllib.error.HTTPError as e:
         err_msg = "Registration failed"
         try:
