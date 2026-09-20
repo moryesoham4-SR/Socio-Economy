@@ -25,21 +25,21 @@ st.markdown("""
         border-radius: 0.75rem;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .metric-title {
-        color: #64748b;
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-    .metric-value {
-        color: #0f172a;
-        font-size: 1.75rem;
-        font-weight: 800;
+    .survey-link-box {
+        background-color: #eff6ff;
+        border: 1.5px solid #3b82f6;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- Sidebar: Configuration & Filters ---
+st.sidebar.title("📱 Field Surveyor App")
+st.sidebar.info("📝 **To collect data & enter household questions**, open `index.html` on your phone or browser.")
+st.sidebar.link_button("🚀 Open Online Survey Form", "https://moryesoham4-sr.github.io/Socio-Economy/")
+
 st.sidebar.title("⚙️ Dashboard Controls")
 
 # Credentials: Read from secrets, environment variables, or defaults
@@ -171,8 +171,13 @@ if st.sidebar.button("🔄 Refresh Data"):
     st.rerun()
 
 # --- Main Dashboard Header ---
-st.title("🏡 Socio-Economic Community Assessment")
-st.markdown("Field Survey Operations, Multi-Dimensional Indicators, and GIS Ground-Truth Mapping")
+col_head1, col_head2 = st.columns([3, 1])
+with col_head1:
+    st.title("🏡 Socio-Economic Community Assessment")
+    st.markdown("Field Survey Operations, Multi-Dimensional Indicators, and GIS Ground-Truth Mapping")
+with col_head2:
+    st.write("")
+    st.link_button("📝 **Open Survey Form**", "https://moryesoham4-sr.github.io/Socio-Economy/", use_container_width=True)
 
 if is_demo:
     st.info("💡 Displaying preview records. Submissions from the surveyor web app will automatically populate here in real-time.")
