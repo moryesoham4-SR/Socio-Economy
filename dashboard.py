@@ -4,6 +4,7 @@ import plotly.express as px
 import folium
 from streamlit_folium import st_folium
 import urllib.request
+import urllib.error
 import json
 import time
 import re
@@ -11,10 +12,10 @@ import os
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Socio-Economic Community Survey & Analytics",
+    page_title="Socio-Economic Community Survey Portal",
     page_icon="🏡",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Custom Styling
@@ -29,7 +30,7 @@ st.markdown("""
     .sub-title {
         font-size: 0.95rem;
         color: #64748b;
-        margin-bottom: 1.25rem;
+        margin-bottom: 1rem;
     }
     .section-header {
         background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
@@ -42,6 +43,15 @@ st.markdown("""
         margin-bottom: 0.75rem;
         border-radius: 0 0.375rem 0.375rem 0;
     }
+    .login-container {
+        max-width: 440px;
+        margin: 2rem auto;
+        padding: 2rem;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,11 +59,63 @@ st.markdown("""
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", "https://tsfzjhapftoacachqute.supabase.co"))
 SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzZnpqaGFwZnRvYWNhY2hxdXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTE4NTQsImV4cCI6MjEwNTQ2Nzg1NH0.60yo8hh51yQvdoGfYdEy8PF0XVLUyePwfuuK-pndJ6o"))
 
-# Session State for Household Counter
+# Session State
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
 if "household_count" not in st.session_state:
     st.session_state.household_count = 1
 
-# --- Supabase Helper Functions ---
+# ==============================================================================
+# SUPABASE AUTH & API HELPERS
+# ==============================================================================
+def supabase_sign_in(email, password):
+    url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = json.dumps({"email": email.strip(), "password": password.strip()}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return True, data.get("user", {}).get("email", email)
+    except urllib.error.HTTPError as e:
+        err_msg = "Invalid email or password"
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            err_msg = err_json.get("error_description") or err_json.get("msg") or err_msg
+        except Exception:
+            pass
+        return False, err_msg
+    except Exception as e:
+        return False, str(e)
+
+def supabase_sign_up(email, password):
+    url = f"{SUPABASE_URL}/auth/v1/signup"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = json.dumps({"email": email.strip(), "password": password.strip()}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return True, "Account created! You can now log in."
+    except urllib.error.HTTPError as e:
+        err_msg = "Registration failed"
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            err_msg = err_json.get("msg") or err_json.get("error_description") or err_msg
+        except Exception:
+            pass
+        return False, err_msg
+    except Exception as e:
+        return False, str(e)
+
 def upload_photo_to_supabase(file_bytes, filename):
     timestamp = int(time.time() * 1000)
     sanitized_name = re.sub(r'[^a-zA-Z0-9.-]', '_', filename)
@@ -65,15 +127,13 @@ def upload_photo_to_supabase(file_bytes, filename):
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "image/jpeg"
     }
-    
     req = urllib.request.Request(url, data=file_bytes, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             if resp.status == 200:
-                public_url = f"{SUPABASE_URL}/storage/v1/object/public/survey-photos/{storage_path}"
-                return public_url
+                return f"{SUPABASE_URL}/storage/v1/object/public/survey-photos/{storage_path}"
     except Exception as e:
-        st.error(f"Photo upload warning: {e}")
+        st.warning(f"Photo upload note: {e}")
     return None
 
 def insert_survey_record(record_data):
@@ -86,7 +146,7 @@ def insert_survey_record(record_data):
     }
     data = json.dumps([record_data]).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 @st.cache_data(ttl=15)
@@ -98,19 +158,137 @@ def fetch_all_responses():
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return pd.DataFrame(data)
+            df = pd.DataFrame(data)
+            # Detect source (On-Field vs Google Form)
+            if not df.empty:
+                def extract_source(row):
+                    if "data_source" in row and pd.notna(row["data_source"]) and row["data_source"]:
+                        return str(row["data_source"])
+                    notes = str(row.get("surveyor_notes", ""))
+                    if "[SOURCE: Google Form]" in notes or "Google Form" in notes:
+                        return "Google Form"
+                    return "On-Field"
+                df["source_type"] = df.apply(extract_source, axis=1)
+            return df
     except Exception as e:
         return pd.DataFrame()
 
-# Load Existing Records
-df_records = fetch_all_responses()
+# ==============================================================================
+# AUTHENTICATION SCREEN (LOGIN PAGE)
+# ==============================================================================
+if not st.session_state.authenticated:
+    st.markdown("<div style='text-align: center; margin-top: 2rem;'>", unsafe_allow_html=True)
+    st.markdown("## 🔐 Socio-Economic Survey Portal Login")
+    st.caption("Secure Surveyor Authentication via Supabase")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# --- App Navigation Tabs ---
-st.markdown('<div class="main-title">🏡 Socio-Economic Community Survey Portal</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Field Data Collection, Cloud Evidence Storage, and Real-Time GIS Analytics</div>', unsafe_allow_html=True)
+    col_l1, col_l2, col_l3 = st.columns([1, 1.4, 1])
+    with col_l2:
+        tab_login, tab_signup, tab_quick = st.tabs(["🔑 Sign In", "📝 Create Account", "⚡ Quick Access"])
+        
+        # --- TAB: SIGN IN ---
+        with tab_login:
+            st.write("")
+            login_email = st.text_input("Email / Surveyor ID", placeholder="surveyor@example.com", key="login_email")
+            login_pass = st.text_input("Password", type="password", placeholder="Enter your password", key="login_pass")
+            
+            if st.button("Log In to Portal", type="primary", use_container_width=True):
+                if not login_email or not login_pass:
+                    st.error("Please enter both email and password.")
+                else:
+                    with st.spinner("Authenticating with Supabase..."):
+                        success, res = supabase_sign_in(login_email, login_pass)
+                        if success:
+                            st.session_state.authenticated = True
+                            st.session_state.user_email = res
+                            st.success("Authentication successful!")
+                            st.rerun()
+                        else:
+                            st.error(f"Login failed: {res}")
 
+        # --- TAB: SIGN UP ---
+        with tab_signup:
+            st.write("")
+            reg_email = st.text_input("Surveyor Email", placeholder="new_surveyor@example.com", key="reg_email")
+            reg_pass = st.text_input("Create Password", type="password", placeholder="Minimum 6 characters", key="reg_pass")
+            reg_pass_conf = st.text_input("Confirm Password", type="password", key="reg_pass_conf")
+            
+            if st.button("Register New Surveyor", use_container_width=True):
+                if not reg_email or not reg_pass:
+                    st.error("Please fill all fields.")
+                elif reg_pass != reg_pass_conf:
+                    st.error("Passwords do not match.")
+                elif len(reg_pass) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    with st.spinner("Creating account in Supabase..."):
+                        success, msg = supabase_sign_up(reg_email, reg_pass)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(f"Registration note: {msg}")
+
+        # --- TAB: QUICK ACCESS ---
+        with tab_quick:
+            st.write("")
+            st.info("Direct access for authorized field enumerators or offline evaluation.")
+            guest_name = st.text_input("Enumerator Name", value="Field Surveyor 1", key="guest_name")
+            if st.button("Continue as Enumerator", type="secondary", use_container_width=True):
+                st.session_state.authenticated = True
+                st.session_state.user_email = f"{guest_name.strip()} (Enumerator)"
+                st.rerun()
+
+    st.stop()  # Stop execution here until logged in
+
+# ==============================================================================
+# LOGGED-IN PORTAL INTERFACE
+# ==============================================================================
+
+# --- Sidebar: User Info, Logout & Global Source Trigger ---
+st.sidebar.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
+if st.sidebar.button("🚪 Sign Out", use_container_width=True):
+    st.session_state.authenticated = False
+    st.session_state.user_email = ""
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎚️ Data Source View")
+
+# TRIGGER BUTTON / SELECTOR for Google Form vs On-Field Data
+data_source_trigger = st.sidebar.radio(
+    "Select Source Filter:",
+    ["🌐 All Data (Combined)", "📱 On-Field Data Only", "📋 Google Form Data Only"],
+    index=0
+)
+
+# Fetch data from Supabase
+df_raw = fetch_all_responses()
+
+# Apply Trigger Button Filter
+if not df_raw.empty and "source_type" in df_raw.columns:
+    if data_source_trigger == "📱 On-Field Data Only":
+        df_filtered = df_raw[df_raw["source_type"] == "On-Field"].copy()
+    elif data_source_trigger == "📋 Google Form Data Only":
+        df_filtered = df_raw[df_raw["source_type"] == "Google Form"].copy()
+    else:
+        df_filtered = df_raw.copy()
+else:
+    df_filtered = df_raw.copy()
+
+# Header Display
+col_head1, col_head2 = st.columns([3, 1.2])
+with col_head1:
+    st.markdown('<div class="main-title">🏡 Socio-Economic Community Assessment</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title">Active Filter: <b>{data_source_trigger}</b> | Logged in as: {st.session_state.user_email}</div>', unsafe_allow_html=True)
+with col_head2:
+    st.write("")
+    if st.button("🔄 Refresh Cloud Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+# --- Main App Navigation Tabs ---
 nav_tab1, nav_tab2, nav_tab3, nav_tab4, nav_tab5 = st.tabs([
     "📝 Fill Household Survey",
     "📊 Analytics & Indicators",
@@ -120,14 +298,91 @@ nav_tab1, nav_tab2, nav_tab3, nav_tab4, nav_tab5 = st.tabs([
 ])
 
 # ==============================================================================
-# TAB 1: FILL HOUSEHOLD SURVEY (ALL QUESTIONS ON ONE PAGE)
+# TAB 1: SURVEY ENTRY (ON-FIELD & GOOGLE FORM DATA CAPTURE)
 # ==============================================================================
 with nav_tab1:
-    st.info(f"📍 **Currently Visiting Household #{st.session_state.household_count}** — Fill in the responses below and tap Save at the bottom.")
+    # Trigger / Toggle for Entry Mode
+    entry_mode = st.radio(
+        "Select Entry Mode:",
+        ["📱 On-Field Door-to-Door Survey (with Camera Photos)", "📋 Enter / Import Google Form Data"],
+        horizontal=True
+    )
     
-    with st.form(f"survey_form_h{st.session_state.household_count}", clear_on_submit=True):
+    if entry_mode == "📋 Enter / Import Google Form Data":
+        st.info("📋 **Google Form Data Entry**: You can upload an exported Google Form responses CSV or manually submit responses collected from Google Forms.")
         
-        # --- SECTION 1: Respondent Details ---
+        uploaded_csv = st.file_uploader("📥 Upload Google Form Responses CSV File", type=["csv"])
+        if uploaded_csv is not None:
+            try:
+                csv_df = pd.read_csv(uploaded_csv)
+                st.write(f"Detected **{len(csv_df)}** rows in CSV:")
+                st.dataframe(csv_df.head(3), use_container_width=True)
+                
+                if st.button(f"⬆️ Import & Sync {len(csv_df)} Google Form Responses to Supabase", type="primary"):
+                    with st.spinner("Syncing Google Form records to Supabase..."):
+                        success_count = 0
+                        for _, row in csv_df.iterrows():
+                            # Normalize fields from typical Google Form CSV columns
+                            name_val = str(row.get("Name", row.get("full_name", row.get("Name *", "Google Form Respondent"))))
+                            email_val = str(row.get("Email", row.get("email", "gform@survey.com")))
+                            locality_val = str(row.get("Which area or locality do you belong to?", row.get("locality", "Not Specified")))
+                            
+                            g_record = {
+                                "full_name": name_val,
+                                "email": email_val,
+                                "gender": str(row.get("Gender", "Prefer not to say")),
+                                "age": int(pd.to_numeric(row.get("Age", 30), errors="coerce") or 30),
+                                "locality": locality_val,
+                                "household_members": str(row.get("How many members are there in your household?", "3 to 4")),
+                                "highest_qualification": str(row.get("What is your highest educational qualification?", "Secondary")),
+                                "members_studying": str(row.get("How many members of your household are currently studying?", "1")),
+                                "distance_to_education": str(row.get("How far is the nearest educational institution?", "1 to 3 km")),
+                                "education_difficulties": ["No major difficulty"],
+                                "employment_status": str(row.get("What is your current employment status?", "Employed")),
+                                "primary_occupation": str(row.get("What is your primary occupation?", "Private job")),
+                                "earning_members": "1",
+                                "monthly_income": str(row.get("What is your approximate monthly household income?", "20,000 to 30,000 INR")),
+                                "house_type": str(row.get("What type of house do you live in?", "Concrete House / Brick House")),
+                                "available_rooms": "2",
+                                "has_electricity": "Yes",
+                                "drinking_water_source": "Tap water",
+                                "water_available_year_round": "Yes",
+                                "toilet_access": "Private toilet",
+                                "primary_cooking_fuel": "LPG",
+                                "waste_disposal": "Municipal or local collection",
+                                "has_internet": "Yes",
+                                "internet_devices": ["Smartphone"],
+                                "rating_education": 3,
+                                "rating_healthcare": 3,
+                                "rating_transportation": 3,
+                                "rating_banking": 3,
+                                "rating_markets": 3,
+                                "biggest_problems": ["Waste management"],
+                                "highest_priority_improvement": ["Roads and transport"],
+                                "photo_urls": [],
+                                "surveyor_notes": f"[SOURCE: Google Form] Imported from CSV ({uploaded_csv.name})"
+                            }
+                            try:
+                                insert_survey_record(g_record)
+                                success_count += 1
+                            except Exception:
+                                pass
+                        st.success(f"✅ Successfully imported and uploaded {success_count} Google Form records to Supabase!")
+                        st.cache_data.clear()
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error reading CSV: {e}")
+
+        st.markdown("---")
+        st.subheader("Or Manually Enter a Single Google Form Response")
+
+    # Survey Form (Common for On-Field or Single Google Form Entry)
+    form_source_tag = "[SOURCE: Google Form]" if "Google Form" in entry_mode else "[SOURCE: On-Field]"
+    
+    with st.form(f"survey_form_{st.session_state.household_count}", clear_on_submit=True):
+        st.caption(f"Entry Mode: **{entry_mode}** | Recording Household #{st.session_state.household_count}")
+        
+        # Section 1: Respondent Information
         st.markdown('<div class="section-header">Section 1: Respondent Information</div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
@@ -137,17 +392,17 @@ with nav_tab1:
             email = st.text_input("Email Address *", placeholder="e.g. ramesh@example.com")
             age = st.number_input("Age (Years) *", min_value=1, max_value=120, value=30)
             
-        # --- SECTION 2: Location and Household ---
+        # Section 2: Location and Household
         st.markdown('<div class="section-header">Section 2: Location & Household</div>', unsafe_allow_html=True)
         col3, col4 = st.columns(2)
         with col3:
             locality = st.text_input("Which area or locality do you belong to? *", placeholder="e.g. Ward 4, Azad Nagar")
-            gps_tag = st.text_input("GPS Coordinates (Optional)", placeholder="e.g. 19.0760, 72.8777")
+            gps_tag = st.text_input("GPS Coordinates (e.g. 19.0760, 72.8777)")
         with col4:
             household_members = st.radio("How many members are there in your household? *", 
                                          ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"], horizontal=True)
 
-        # --- SECTION 3: Education ---
+        # Section 3: Education
         st.markdown('<div class="section-header">Section 3: Education</div>', unsafe_allow_html=True)
         highest_qualification = st.selectbox(
             "What is your highest educational qualification? *",
@@ -173,7 +428,7 @@ with nav_tab1:
         if "Other" in education_difficulties:
             education_difficulties_other = st.text_input("Specify other education difficulty:")
 
-        # --- SECTION 4: Employment & Income ---
+        # Section 4: Employment & Income
         st.markdown('<div class="section-header">Section 4: Employment & Income</div>', unsafe_allow_html=True)
         col7, col8 = st.columns(2)
         with col7:
@@ -197,7 +452,7 @@ with nav_tab1:
                 index=2
             )
 
-        # --- SECTION 5: Housing, Water & Basic Amenities ---
+        # Section 5: Housing, Water & Basic Amenities
         st.markdown('<div class="section-header">Section 5: Housing & Basic Living Conditions</div>', unsafe_allow_html=True)
         col9, col10 = st.columns(2)
         with col9:
@@ -230,7 +485,7 @@ with nav_tab1:
             if waste_disposal == "Other":
                 waste_disposal_other = st.text_input("Specify other waste disposal method:")
 
-        # --- SECTION 6: Digital Access ---
+        # Section 6: Digital Access
         st.markdown('<div class="section-header">Section 6: Digital Access</div>', unsafe_allow_html=True)
         col11, col12 = st.columns(2)
         with col11:
@@ -245,7 +500,7 @@ with nav_tab1:
             if "Other" in internet_devices:
                 internet_devices_other = st.text_input("Specify other internet device:")
 
-        # --- SECTION 7: Essential Services Rating & Local Problems ---
+        # Section 7: Essential Services Rating & Local Problems
         st.markdown('<div class="section-header">Section 7: Community Problems & Service Ratings</div>', unsafe_allow_html=True)
         st.write("Rate access to essential services in your area from **1 (Very Poor)** to **5 (Very Good)**:")
         
@@ -279,17 +534,21 @@ with nav_tab1:
         if "Other" in highest_priority:
             highest_priority_other = st.text_input("Specify other priority:")
 
-        # --- SECTION 8: Photo Evidence & Field Notes ---
-        st.markdown('<div class="section-header">Section 8: Photo Evidence & Field Notes</div>', unsafe_allow_html=True)
-        st.caption("Capture photos using your smartphone camera or upload gallery files. They will be stored directly into your Supabase Storage bucket (`survey-photos`).")
-        
-        cam_photo = st.camera_input("📷 Take Photo with Smartphone Camera")
-        file_photos = st.file_uploader("🖼️ Or Upload Existing Photos from Device", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
-        surveyor_notes = st.text_area("Surveyor Observation Notes (Optional)", placeholder="e.g. Verified with neighbor, roof repairs needed, etc.")
+        # Section 8: Photo Evidence (Only if On-Field)
+        uploaded_photo_urls = []
+        if "On-Field" in entry_mode:
+            st.markdown('<div class="section-header">Section 8: Photo Evidence & Field Notes</div>', unsafe_allow_html=True)
+            st.caption("Capture photos using smartphone camera or upload gallery files to Supabase Storage (`survey-photos`).")
+            cam_photo = st.camera_input("📷 Take Photo with Smartphone Camera")
+            file_photos = st.file_uploader("🖼️ Or Upload Existing Photos from Device", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
+        else:
+            cam_photo = None
+            file_photos = None
+
+        surveyor_notes = st.text_area("Observations / Notes (Optional)", placeholder="e.g. Additional remarks or notes...")
 
         st.markdown("---")
-        # Submit Button
-        submitted = st.form_submit_button("💾 Save Household Record & Next House", type="primary", use_container_width=True)
+        submitted = st.form_submit_button(f"💾 Save Record ({entry_mode.split()[0]}) & Next", type="primary", use_container_width=True)
 
         if submitted:
             if not full_name.strip():
@@ -297,30 +556,25 @@ with nav_tab1:
             elif not locality.strip():
                 st.error("⚠️ Please enter the locality/area name.")
             else:
-                with st.spinner("Saving household record and uploading photos to Supabase..."):
-                    uploaded_photo_urls = []
-                    
-                    # Upload camera photo if taken
+                with st.spinner("Saving record to Supabase..."):
                     if cam_photo is not None:
-                        cam_bytes = cam_photo.getvalue()
-                        cam_url = upload_photo_to_supabase(cam_bytes, f"camera_house_{st.session_state.household_count}.jpg")
-                        if cam_url:
-                            uploaded_photo_urls.append(cam_url)
+                        c_url = upload_photo_to_supabase(cam_photo.getvalue(), f"cam_h{st.session_state.household_count}.jpg")
+                        if c_url:
+                            uploaded_photo_urls.append(c_url)
                             
-                    # Upload file photos if attached
                     if file_photos:
                         for f in file_photos:
-                            f_bytes = f.getvalue()
-                            f_url = upload_photo_to_supabase(f_bytes, f.name)
+                            f_url = upload_photo_to_supabase(f.getvalue(), f.name)
                             if f_url:
                                 uploaded_photo_urls.append(f_url)
 
-                    # Build notes with GPS if entered
-                    final_notes = surveyor_notes.strip() if surveyor_notes else ""
+                    # Notes containing Source Tag and GPS
+                    final_notes = f"{form_source_tag} "
                     if gps_tag.strip():
-                        final_notes = f"[GPS: {gps_tag.strip()}] {final_notes}".strip()
+                        final_notes += f"[GPS: {gps_tag.strip()}] "
+                    if surveyor_notes and surveyor_notes.strip():
+                        final_notes += surveyor_notes.strip()
 
-                    # Construct Record
                     record = {
                         "full_name": full_name.strip(),
                         "email": email.strip() if email.strip() else "not_provided@survey.com",
@@ -365,12 +619,12 @@ with nav_tab1:
                         "highest_priority_improvement": highest_priority,
                         "highest_priority_improvement_other": highest_priority_other if highest_priority_other else None,
                         "photo_urls": uploaded_photo_urls,
-                        "surveyor_notes": final_notes if final_notes else None
+                        "surveyor_notes": final_notes.strip() if final_notes.strip() else None
                     }
 
                     try:
                         insert_survey_record(record)
-                        st.success(f"🎉 Household #{st.session_state.household_count} ({full_name}) successfully saved to Supabase with {len(uploaded_photo_urls)} photo(s)!")
+                        st.success(f"🎉 Record for {full_name} ({entry_mode.split()[0]}) successfully saved to Supabase!")
                         st.session_state.household_count += 1
                         st.cache_data.clear()
                         st.rerun()
@@ -378,23 +632,22 @@ with nav_tab1:
                         st.error(f"Failed to insert into Supabase: {err}")
 
 # ==============================================================================
-# TAB 2: COMMUNITY ANALYTICS & SOCIO-ECONOMIC INDICATORS
+# TAB 2: ANALYTICS & SOCIO-ECONOMIC INDICATORS
 # ==============================================================================
 with nav_tab2:
-    if df_records.empty:
-        st.info("ℹ️ No records found in Supabase yet. Fill out the survey form in Tab 1 to populate analytics.")
+    st.subheader(f"📊 Socio-Economic Indicators ({data_source_trigger})")
+    
+    if df_filtered.empty:
+        st.info("ℹ️ No records found for the selected filter. Enter records in Tab 1 to populate analytics.")
     else:
-        st.subheader("Community Socio-Economic Profile")
-        
-        # Top Metrics
-        tot_hh = len(df_records)
-        tot_photos = sum([len(p) for p in df_records['photo_urls'] if isinstance(p, list)])
-        elec_rate = (df_records['has_electricity'] == 'Yes').mean() * 100 if tot_hh > 0 else 0
-        water_rate = (df_records['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
-        toilet_rate = (df_records['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
+        tot_hh = len(df_filtered)
+        tot_photos = sum([len(p) for p in df_filtered['photo_urls'] if isinstance(p, list)])
+        elec_rate = (df_filtered['has_electricity'] == 'Yes').mean() * 100 if tot_hh > 0 else 0
+        water_rate = (df_filtered['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
+        toilet_rate = (df_filtered['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
 
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Households Surveyed", tot_hh)
+        m1.metric("Responses in View", tot_hh)
         m2.metric("Photos Uploaded", tot_photos)
         m3.metric("Electricity Access", f"{elec_rate:.1f}%")
         m4.metric("Piped Water Access", f"{water_rate:.1f}%")
@@ -405,7 +658,7 @@ with nav_tab2:
         ca1, ca2 = st.columns(2)
         with ca1:
             st.subheader("Monthly Household Income Distribution")
-            inc_counts = df_records['monthly_income'].value_counts().reset_index()
+            inc_counts = df_filtered['monthly_income'].value_counts().reset_index()
             inc_counts.columns = ['Income Bracket', 'Households']
             fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues')
             fig_inc.update_layout(xaxis_tickangle=-30)
@@ -413,7 +666,7 @@ with nav_tab2:
 
         with ca2:
             st.subheader("House Structural Types")
-            house_counts = df_records['house_type'].value_counts().reset_index()
+            house_counts = df_filtered['house_type'].value_counts().reset_index()
             house_counts.columns = ['House Type', 'Count']
             fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2)
             st.plotly_chart(fig_house, use_container_width=True)
@@ -421,7 +674,7 @@ with nav_tab2:
         ca3, ca4 = st.columns(2)
         with ca3:
             st.subheader("Primary Occupations")
-            occ_counts = df_records['primary_occupation'].value_counts().reset_index()
+            occ_counts = df_filtered['primary_occupation'].value_counts().reset_index()
             occ_counts.columns = ['Occupation', 'Count']
             fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal')
             st.plotly_chart(fig_occ, use_container_width=True)
@@ -437,8 +690,8 @@ with nav_tab2:
             }
             avg_ratings = []
             for col_name, srv_label in services.items():
-                if col_name in df_records.columns:
-                    val = pd.to_numeric(df_records[col_name], errors='coerce').mean()
+                if col_name in df_filtered.columns:
+                    val = pd.to_numeric(df_filtered[col_name], errors='coerce').mean()
                     avg_ratings.append({"Service": srv_label, "Avg Rating": round(val, 2)})
             df_srv = pd.DataFrame(avg_ratings)
             fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating')
@@ -448,8 +701,8 @@ with nav_tab2:
 # TAB 3: GEOSPATIAL / GIS MAPPING
 # ==============================================================================
 with nav_tab3:
-    st.subheader("Geospatial Household Ground-Truth Map")
-    st.caption("Households tagged with GPS coordinates appear as interactive pins with on-site details.")
+    st.subheader(f"🗺️ Geospatial Household Ground-Truth Map ({data_source_trigger})")
+    st.caption("Pins show GPS-tagged locations with household profiles.")
 
     def parse_gps(notes):
         if not isinstance(notes, str):
@@ -459,9 +712,9 @@ with nav_tab3:
             return float(match.group(1)), float(match.group(2))
         return None, None
 
-    if not df_records.empty:
-        gps_coords = [parse_gps(n) for n in df_records['surveyor_notes']]
-        valid_coords = [(lat, lon, df_records.iloc[i]) for i, (lat, lon) in enumerate(gps_coords) if lat is not None and lon is not None]
+    if not df_filtered.empty:
+        gps_coords = [parse_gps(n) for n in df_filtered['surveyor_notes']]
+        valid_coords = [(lat, lon, df_filtered.iloc[i]) for i, (lat, lon) in enumerate(gps_coords) if lat is not None and lon is not None]
 
         if valid_coords:
             center_lat = sum([c[0] for c in valid_coords]) / len(valid_coords)
@@ -469,9 +722,11 @@ with nav_tab3:
             m = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="CartoDB positron")
 
             for lat, lon, row in valid_coords:
+                is_gform = row.get("source_type") == "Google Form"
+                marker_color = "green" if is_gform else "blue"
                 popup_html = f"""
                 <div style="font-family: sans-serif; font-size: 12px; width: 200px;">
-                    <b style="color: #2563eb;">{row['full_name']}</b><br>
+                    <b style="color: #2563eb;">{row['full_name']}</b> ({row.get('source_type', 'On-Field')})<br>
                     <span>{row['locality']}</span><hr style="margin: 4px 0;">
                     <b>House:</b> {row['house_type']}<br>
                     <b>Income:</b> {row['monthly_income']}<br>
@@ -481,51 +736,51 @@ with nav_tab3:
                 folium.Marker(
                     location=[lat, lon],
                     popup=folium.Popup(popup_html, max_width=250),
-                    tooltip=f"{row['full_name']} ({row['locality']})",
-                    icon=folium.Icon(color="blue", icon="home", prefix="fa")
+                    tooltip=f"{row['full_name']} ({row.get('source_type', 'On-Field')})",
+                    icon=folium.Icon(color=marker_color, icon="home", prefix="fa")
                 ).add_to(m)
 
             st_folium(m, width="100%", height=500)
         else:
-            st.info("ℹ️ No GPS coordinates found in existing records. Enter GPS coordinates in the survey form to display map pins.")
+            st.info("ℹ️ No GPS coordinates found in the filtered records. Enter GPS coordinates during survey entry to display map pins.")
     else:
-        st.info("No records to map yet.")
+        st.info("No records to display on map.")
 
 # ==============================================================================
 # TAB 4: PHOTO EVIDENCE GALLERY
 # ==============================================================================
 with nav_tab4:
-    st.subheader("Household & Field Evidence Photos")
-    st.caption("Photos saved in your Supabase Storage bucket (`survey-photos`).")
+    st.subheader(f"📸 Field Evidence Photo Gallery ({data_source_trigger})")
+    st.caption("Photos retrieved live from your Supabase Storage bucket (`survey-photos`).")
 
-    if not df_records.empty:
-        records_with_photos = df_records[df_records['photo_urls'].apply(lambda x: isinstance(x, list) and len(x) > 0)]
+    if not df_filtered.empty:
+        records_with_photos = df_filtered[df_filtered['photo_urls'].apply(lambda x: isinstance(x, list) and len(x) > 0)]
         if records_with_photos.empty:
-            st.info("No photos uploaded yet.")
+            st.info("No photos found in the filtered records.")
         else:
             for idx, row in records_with_photos.iterrows():
-                with st.expander(f"📷 {row['full_name']} — {row['locality']} ({len(row['photo_urls'])} photos)", expanded=True):
+                with st.expander(f"📷 {row['full_name']} — {row['locality']} ({len(row['photo_urls'])} photos | {row.get('source_type', 'On-Field')})", expanded=True):
                     cols = st.columns(min(len(row['photo_urls']), 4))
                     for i, p_url in enumerate(row['photo_urls']):
                         with cols[i % 4]:
                             st.image(p_url, caption=f"Photo {i+1}", use_container_width=True)
                     st.caption(f"**House Type:** {row['house_type']} | **Water Source:** {row['drinking_water_source']} | **Notes:** {row.get('surveyor_notes', 'None')}")
     else:
-        st.info("No records found.")
+        st.info("No records available.")
 
 # ==============================================================================
 # TAB 5: SUBMISSIONS TABLE & EXPORT
 # ==============================================================================
 with nav_tab5:
-    st.subheader("All Household Survey Records")
-    if not df_records.empty:
-        st.dataframe(df_records, use_container_width=True)
-        csv_data = df_records.to_csv(index=False).encode('utf-8')
+    st.subheader(f"📋 Submissions Table ({data_source_trigger})")
+    if not df_filtered.empty:
+        st.dataframe(df_filtered, use_container_width=True)
+        csv_data = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download All Records as CSV",
+            label=f"📥 Download ({data_source_trigger}) as CSV",
             data=csv_data,
-            file_name="household_survey_records.csv",
+            file_name=f"survey_data_{data_source_trigger.split()[1].lower()}.csv",
             mime="text/csv"
         )
     else:
-        st.info("No records recorded yet.")
+        st.info("No records to display.")
