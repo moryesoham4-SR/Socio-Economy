@@ -1,14 +1,10 @@
 /**
  * Supabase Client Configuration
- * 
- * You can set your Supabase credentials here or configure them via the UI Settings modal.
- * Setting them in the UI will save them to localStorage.
  */
 
 const SUPABASE_DEFAULTS = {
-    // Replace with your project's URL and Anon Key from Supabase Dashboard -> Project Settings -> API
-    url: window.localStorage.getItem('SUPABASE_URL') || '',
-    anonKey: window.localStorage.getItem('SUPABASE_ANON_KEY') || '',
+    url: window.localStorage.getItem('SUPABASE_URL') || 'https://tsfzjhapftoacachqute.supabase.co',
+    anonKey: window.localStorage.getItem('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzZnpqaGFwZnRvYWNhY2hxdXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTE4NTQsImV4cCI6MjEwNTQ2Nzg1NH0.60yo8hh51yQvdoGfYdEy8PF0XVLUyePwfuuK-pndJ6o',
     storageBucket: 'survey-photos'
 };
 
@@ -33,7 +29,7 @@ function initSupabase(url, key) {
     return null;
 }
 
-// Auto-initialize if credentials exist
+// Auto-initialize with configured credentials
 if (window.supabase && SUPABASE_DEFAULTS.url && SUPABASE_DEFAULTS.anonKey) {
     initSupabase();
 }

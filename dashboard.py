@@ -42,14 +42,14 @@ st.markdown("""
 # --- Sidebar: Configuration & Filters ---
 st.sidebar.title("⚙️ Dashboard Controls")
 
-# Credentials: Read from secrets, environment variables, or sidebar inputs
-default_url = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
-default_key = st.secrets.get("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_ANON_KEY", ""))
+# Credentials: Read from secrets, environment variables, or defaults
+default_url = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", "https://tsfzjhapftoacachqute.supabase.co"))
+default_key = st.secrets.get("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzZnpqaGFwZnRvYWNhY2hxdXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTE4NTQsImV4cCI6MjEwNTQ2Nzg1NH0.60yo8hh51yQvdoGfYdEy8PF0XVLUyePwfuuK-pndJ6o"))
 
-with st.sidebar.expander("Supabase Connection", expanded=(not default_url or not default_key)):
+with st.sidebar.expander("Supabase Connection", expanded=False):
     supabase_url = st.text_input("Project URL", value=default_url, placeholder="https://xyz.supabase.co")
     supabase_key = st.text_input("Anon API Key", value=default_key, type="password", placeholder="eyJhbGciOi...")
-    st.caption("Tip: On Streamlit Cloud, add these to **App Settings ➔ Secrets**.")
+    st.caption("Live Supabase credentials configured.")
 
 # --- Supabase Data Fetching ---
 @st.cache_data(ttl=30)
