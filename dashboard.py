@@ -15,42 +15,104 @@ st.set_page_config(
     page_title="Socio-Economic Community Survey Portal",
     page_icon="🏡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Custom Styling
+# Comprehensive Mobile-First Styling
 st.markdown("""
 <style>
-    .main-title {
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin-bottom: 0.25rem;
+    /* Prevent iOS auto-zoom on input focus */
+    input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput {
+        font-size: 16px !important;
     }
-    .sub-title {
-        font-size: 0.95rem;
-        color: #64748b;
-        margin-bottom: 1rem;
+
+    /* Mobile Container Spacing */
+    .block-container {
+        padding-top: 1.25rem !important;
+        padding-bottom: 4rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 100% !important;
     }
+
+    /* Touch-Friendly Buttons (min 48px height) */
+    button[kind="primary"], button[kind="secondary"], .stButton > button {
+        min-height: 48px !important;
+        border-radius: 10px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        padding: 0.6rem 1rem !important;
+        touch-action: manipulation;
+    }
+
+    /* Submit Button Highlight */
+    div[data-testid="stFormSubmitButton"] button {
+        background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+    }
+
+    /* Mobile Horizontal Tab Bar */
+    div[data-baseweb="tab-list"] {
+        gap: 0.35rem !important;
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 1.5px solid #e2e8f0 !important;
+    }
+
+    div[data-baseweb="tab"] {
+        font-size: 0.85rem !important;
+        padding: 0.5rem 0.75rem !important;
+        white-space: nowrap !important;
+        border-radius: 8px !important;
+        background-color: #f8fafc !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+
+    div[aria-selected="true"] {
+        background-color: #eff6ff !important;
+        border-color: #3b82f6 !important;
+        color: #1d4ed8 !important;
+        font-weight: 700 !important;
+    }
+
+    /* Card Section Headers */
     .section-header {
         background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
         border-left: 4px solid #2563eb;
         padding: 0.5rem 0.75rem;
         font-weight: 700;
-        font-size: 1rem;
+        font-size: 0.95rem;
         color: #1e3a8a;
         margin-top: 1rem;
         margin-bottom: 0.75rem;
-        border-radius: 0 0.375rem 0.375rem 0;
+        border-radius: 0 0.5rem 0.5rem 0;
     }
-    .login-container {
-        max-width: 440px;
-        margin: 2rem auto;
-        padding: 2rem;
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 1rem;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+
+    .main-title {
+        font-size: 1.5rem !important;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.25;
+        margin-bottom: 0.25rem;
+    }
+
+    .sub-title {
+        font-size: 0.85rem !important;
+        color: #64748b;
+        margin-bottom: 0.75rem;
+    }
+
+    /* Mobile Responsive Tweaks */
+    @media (max-width: 768px) {
+        .main-title { font-size: 1.25rem !important; }
+        .stMetric { background: #f8fafc; padding: 0.6rem; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 0.5rem; }
+        div[data-testid="stForm"] { padding: 0.75rem !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -588,17 +650,14 @@ with nav_tab1:
         st.markdown('<div class="section-header">Section 7: Community Problems & Service Ratings</div>', unsafe_allow_html=True)
         st.write("Rate access to essential services in your area from **1 (Very Poor)** to **5 (Very Good)**:")
         
-        r_cols = st.columns(5)
-        with r_cols[0]:
-            r_edu = st.slider("Education", min_value=1, max_value=5, value=3)
-        with r_cols[1]:
-            r_health = st.slider("Healthcare", min_value=1, max_value=5, value=3)
-        with r_cols[2]:
-            r_trans = st.slider("Transport", min_value=1, max_value=5, value=3)
-        with r_cols[3]:
-            r_bank = st.slider("Banking", min_value=1, max_value=5, value=3)
-        with r_cols[4]:
-            r_market = st.slider("Markets", min_value=1, max_value=5, value=3)
+        r_c1, r_c2 = st.columns(2)
+        with r_c1:
+            r_edu = st.select_slider("Education Quality (1-5)", options=[1, 2, 3, 4, 5], value=3)
+            r_health = st.select_slider("Healthcare Access (1-5)", options=[1, 2, 3, 4, 5], value=3)
+            r_trans = st.select_slider("Transportation (1-5)", options=[1, 2, 3, 4, 5], value=3)
+        with r_c2:
+            r_bank = st.select_slider("Banking Facilities (1-5)", options=[1, 2, 3, 4, 5], value=3)
+            r_market = st.select_slider("Local Markets (1-5)", options=[1, 2, 3, 4, 5], value=3)
 
         biggest_problems = st.multiselect(
             "What is the biggest socio-economic problem in your area? (Multi-select) *",
@@ -730,12 +789,15 @@ with nav_tab2:
         water_rate = (df_filtered['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
         toilet_rate = (df_filtered['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Responses in View", tot_hh)
-        m2.metric("Photos Uploaded", tot_photos)
-        m3.metric("Electricity Access", f"{elec_rate:.1f}%")
-        m4.metric("Piped Water Access", f"{water_rate:.1f}%")
-        m5.metric("Private Sanitation", f"{toilet_rate:.1f}%")
+        # Mobile-friendly 2-row layout
+        row1_c1, row1_c2 = st.columns(2)
+        row1_c1.metric("Responses in View", tot_hh)
+        row1_c2.metric("Photos Uploaded", tot_photos)
+
+        row2_c1, row2_c2, row2_c3 = st.columns(3)
+        row2_c1.metric("Electricity", f"{elec_rate:.1f}%")
+        row2_c2.metric("Piped Water", f"{water_rate:.1f}%")
+        row2_c3.metric("Sanitation", f"{toilet_rate:.1f}%")
 
         st.divider()
 
