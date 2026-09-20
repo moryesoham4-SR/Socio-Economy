@@ -211,6 +211,28 @@ def insert_survey_record(record_data):
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
+def update_survey_record(record_id, updated_data):
+    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
+    headers = {
+        "apikey": SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = json.dumps(updated_data).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="PATCH")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.status in [200, 204]
+
+def delete_survey_record(record_id):
+    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
+    headers = {
+        "apikey": SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}"
+    }
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.status in [200, 204]
+
 @st.cache_data(ttl=15)
 def fetch_all_responses():
     url = f"{SUPABASE_URL}/rest/v1/survey_responses?select=*&order=created_at.desc"
@@ -834,15 +856,106 @@ with nav_tab4:
 # TAB 5: SUBMISSIONS TABLE & EXPORT
 # ==============================================================================
 with nav_tab5:
-    st.subheader(f"📋 Submissions Table ({data_source_trigger})")
+    st.subheader(f"📋 Submissions Table & Management ({data_source_trigger})")
+    
     if not df_filtered.empty:
+        # Table Display
         st.dataframe(df_filtered, use_container_width=True)
-        csv_data = df_filtered.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label=f"📥 Download ({data_source_trigger}) as CSV",
-            data=csv_data,
-            file_name=f"survey_data_{data_source_trigger.split()[1].lower()}.csv",
-            mime="text/csv"
-        )
+        
+        # CSV Export
+        col_dl1, col_dl2 = st.columns([1.5, 3])
+        with col_dl1:
+            csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label=f"📥 Download ({data_source_trigger}) as CSV",
+                data=csv_data,
+                file_name=f"survey_data_{data_source_trigger.split()[1].lower()}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        st.markdown("---")
+        st.markdown("### ✏️ Edit or 🗑️ Delete a Survey Record")
+        st.caption("Select any household record below to edit its answers or permanently delete it from Supabase.")
+
+        # Build dropdown options
+        record_map = {f"{r['full_name']} — {r['locality']} (ID: {str(r['id'])[:8]}...)": r['id'] for _, r in df_filtered.iterrows()}
+        selected_label = st.selectbox("Choose Household to Edit or Delete:", list(record_map.keys()))
+        selected_id = record_map[selected_label]
+        target_row = df_filtered[df_filtered['id'] == selected_id].iloc[0]
+
+        edit_col, del_col = st.columns([2.5, 1])
+
+        with edit_col:
+            with st.expander(f"✏️ Edit Details for **{target_row['full_name']}**", expanded=True):
+                with st.form(f"edit_form_{selected_id}"):
+                    e_c1, e_c2 = st.columns(2)
+                    with e_c1:
+                        new_name = st.text_input("Full Name", value=str(target_row.get('full_name', '')))
+                        curr_g = target_row.get('gender', 'Male')
+                        new_gender = st.selectbox("Gender", ["Male", "Female", "Prefer not to say"], 
+                                                 index=["Male", "Female", "Prefer not to say"].index(curr_g) if curr_g in ["Male", "Female", "Prefer not to say"] else 0)
+                        new_locality = st.text_input("Locality / Area", value=str(target_row.get('locality', '')))
+                        curr_hh = target_row.get('household_members', '3 to 4')
+                        hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
+                        new_hh_members = st.selectbox("Household Members", hh_opts,
+                                                     index=hh_opts.index(curr_hh) if curr_hh in hh_opts else 1)
+                        new_occupation = st.text_input("Primary Occupation", value=str(target_row.get('primary_occupation', '')))
+                        curr_inc = target_row.get('monthly_income')
+                        inc_opts = ["Below 10,000 INR", "10,000 to 20,000 INR", "20,000 to 30,000 INR", "30,000 to 50,000 INR", "50,000 to 75,000 INR", "Above 75,000 INR", "Prefer not to say"]
+                        new_income = st.selectbox("Monthly Income", inc_opts,
+                                                 index=inc_opts.index(curr_inc) if curr_inc in inc_opts else 2)
+                    with e_c2:
+                        new_email = st.text_input("Email", value=str(target_row.get('email', '')))
+                        new_age = st.number_input("Age", min_value=1, max_value=120, value=int(target_row.get('age', 30)))
+                        new_house_type = st.text_input("House Type", value=str(target_row.get('house_type', '')))
+                        new_water = st.text_input("Drinking Water Source", value=str(target_row.get('drinking_water_source', '')))
+                        new_electricity = st.selectbox("Electricity Available?", ["Yes", "No"], index=0 if target_row.get('has_electricity') == 'Yes' else 1)
+                        curr_toilet = target_row.get('toilet_access')
+                        toilet_opts = ["Private toilet", "Shared toilet", "No toilet"]
+                        new_toilet = st.selectbox("Toilet Access", toilet_opts,
+                                                 index=toilet_opts.index(curr_toilet) if curr_toilet in toilet_opts else 0)
+
+                    new_notes = st.text_area("Surveyor Notes", value=str(target_row.get('surveyor_notes', '')))
+                    
+                    save_edit = st.form_submit_button("💾 Save Changes to Record", type="primary", use_container_width=True)
+                    if save_edit:
+                        updated_payload = {
+                            "full_name": new_name.strip(),
+                            "email": new_email.strip(),
+                            "gender": new_gender,
+                            "age": int(new_age),
+                            "locality": new_locality.strip(),
+                            "household_members": new_hh_members,
+                            "primary_occupation": new_occupation.strip(),
+                            "monthly_income": new_income,
+                            "house_type": new_house_type.strip(),
+                            "drinking_water_source": new_water.strip(),
+                            "has_electricity": new_electricity,
+                            "toilet_access": new_toilet,
+                            "surveyor_notes": new_notes.strip() if new_notes.strip() else None
+                        }
+                        with st.spinner("Updating record in Supabase..."):
+                            if update_survey_record(selected_id, updated_payload):
+                                st.success(f"✅ Record for {new_name} updated successfully in Supabase!")
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to update record in Supabase.")
+
+        with del_col:
+            with st.expander("🗑️ Delete Record", expanded=True):
+                st.warning(f"Permanently delete survey for **{target_row['full_name']}**?")
+                confirm_del = st.checkbox("I confirm permanent deletion", key=f"conf_del_{selected_id}")
+                if st.button("🚨 Delete Record", type="primary", use_container_width=True, disabled=not confirm_del):
+                    with st.spinner("Deleting record from Supabase..."):
+                        if delete_survey_record(selected_id):
+                            st.success("🗑️ Record permanently deleted from Supabase!")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete record from Supabase.")
     else:
-        st.info("No records to display.")
+        st.info("No records to display or manage.")
