@@ -15,77 +15,46 @@ st.set_page_config(
     page_title="Socio-Economic Community Survey Portal",
     page_icon="🏡",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto"
 )
 
-# Comprehensive Mobile-First Styling
+# Universal Responsive Design (Desktops, Laptops, Tablets & Phones)
 st.markdown("""
 <style>
-    /* Prevent iOS auto-zoom on input focus */
+    /* Base Responsive Typography & Inputs */
+    html, body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    
     input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput {
-        font-size: 16px !important;
-    }
-
-    /* Mobile Container Spacing */
-    .block-container {
-        padding-top: 1.25rem !important;
-        padding-bottom: 4rem !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-        max-width: 100% !important;
-    }
-
-    /* Touch-Friendly Buttons (min 48px height) */
-    button[kind="primary"], button[kind="secondary"], .stButton > button {
-        min-height: 48px !important;
-        border-radius: 10px !important;
         font-size: 15px !important;
-        font-weight: 600 !important;
-        padding: 0.6rem 1rem !important;
-        touch-action: manipulation;
     }
 
-    /* Submit Button Highlight */
+    /* Common Button Styling */
+    button[kind="primary"], button[kind="secondary"], .stButton > button {
+        min-height: 44px !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
+        transition: all 0.15s ease-in-out;
+    }
+
+    /* Submit Button */
     div[data-testid="stFormSubmitButton"] button {
         background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
         color: white !important;
         border: none !important;
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
-        font-size: 16px !important;
+        box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25) !important;
+        font-size: 15px !important;
         font-weight: 700 !important;
     }
 
-    /* Mobile Horizontal Tab Bar */
-    div[data-baseweb="tab-list"] {
-        gap: 0.35rem !important;
-        overflow-x: auto !important;
-        flex-wrap: nowrap !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding-bottom: 0.5rem !important;
-        border-bottom: 1.5px solid #e2e8f0 !important;
-    }
-
-    div[data-baseweb="tab"] {
-        font-size: 0.85rem !important;
-        padding: 0.5rem 0.75rem !important;
-        white-space: nowrap !important;
-        border-radius: 8px !important;
-        background-color: #f8fafc !important;
-        border: 1px solid #e2e8f0 !important;
-    }
-
-    div[aria-selected="true"] {
-        background-color: #eff6ff !important;
-        border-color: #3b82f6 !important;
-        color: #1d4ed8 !important;
-        font-weight: 700 !important;
-    }
-
-    /* Card Section Headers */
+    /* Section Headers */
     .section-header {
-        background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
+        background: linear-gradient(90deg, #eff6ff 0%, #f8fafc 100%);
         border-left: 4px solid #2563eb;
-        padding: 0.5rem 0.75rem;
+        padding: 0.5rem 0.85rem;
         font-weight: 700;
         font-size: 0.95rem;
         color: #1e3a8a;
@@ -94,25 +63,141 @@ st.markdown("""
         border-radius: 0 0.5rem 0.5rem 0;
     }
 
-    .main-title {
-        font-size: 1.5rem !important;
-        font-weight: 800;
-        color: #0f172a;
-        line-height: 1.25;
-        margin-bottom: 0.25rem;
+    /* Tab Pill Active Styles */
+    div[aria-selected="true"] {
+        background-color: #eff6ff !important;
+        border-color: #3b82f6 !important;
+        color: #1d4ed8 !important;
+        font-weight: 700 !important;
     }
 
-    .sub-title {
-        font-size: 0.85rem !important;
-        color: #64748b;
-        margin-bottom: 0.75rem;
+    /* =======================================================
+       DESKTOPS & LAPTOPS (>= 1024px)
+       ======================================================= */
+    @media (min-width: 1024px) {
+        .block-container {
+            max-width: 1200px !important;
+            margin: 0 auto !important;
+            padding-top: 1.5rem !important;
+            padding-bottom: 3.5rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
+        .main-title {
+            font-size: 1.85rem !important;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.25rem;
+        }
+        .sub-title {
+            font-size: 0.95rem !important;
+            color: #64748b;
+            margin-bottom: 1.25rem;
+        }
+        div[data-baseweb="tab-list"] {
+            display: flex !important;
+            gap: 0.5rem !important;
+            border-bottom: 2px solid #e2e8f0 !important;
+            padding-bottom: 0.25rem !important;
+        }
+        div[data-baseweb="tab"] {
+            font-size: 0.9rem !important;
+            padding: 0.55rem 1.1rem !important;
+            border-radius: 8px 8px 0 0 !important;
+            border: 1px solid #e2e8f0 !important;
+            border-bottom: none !important;
+            background-color: #f8fafc !important;
+        }
     }
 
-    /* Mobile Responsive Tweaks */
-    @media (max-width: 768px) {
-        .main-title { font-size: 1.25rem !important; }
-        .stMetric { background: #f8fafc; padding: 0.6rem; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 0.5rem; }
-        div[data-testid="stForm"] { padding: 0.75rem !important; }
+    /* =======================================================
+       TABLETS (768px to 1023px)
+       ======================================================= */
+    @media (min-width: 768px) and (max-width: 1023px) {
+        .block-container {
+            max-width: 95% !important;
+            margin: 0 auto !important;
+            padding-top: 1.25rem !important;
+            padding-bottom: 3rem !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+        }
+        .main-title {
+            font-size: 1.55rem !important;
+            font-weight: 800;
+        }
+        .sub-title {
+            font-size: 0.9rem !important;
+        }
+        div[data-baseweb="tab-list"] {
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            gap: 0.4rem !important;
+            padding-bottom: 0.35rem !important;
+            border-bottom: 1.5px solid #e2e8f0 !important;
+        }
+        div[data-baseweb="tab"] {
+            font-size: 0.85rem !important;
+            padding: 0.5rem 0.85rem !important;
+            white-space: nowrap !important;
+            border-radius: 8px !important;
+            border: 1px solid #e2e8f0 !important;
+            background-color: #f8fafc !important;
+        }
+    }
+
+    /* =======================================================
+       MOBILE PHONES (< 768px)
+       ======================================================= */
+    @media (max-width: 767px) {
+        .block-container {
+            max-width: 100% !important;
+            padding-top: 1rem !important;
+            padding-bottom: 4rem !important;
+            padding-left: 0.65rem !important;
+            padding-right: 0.65rem !important;
+        }
+        .main-title {
+            font-size: 1.25rem !important;
+            line-height: 1.3;
+        }
+        .sub-title {
+            font-size: 0.8rem !important;
+            margin-bottom: 0.75rem;
+        }
+        input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput {
+            font-size: 16px !important; /* Prevents auto-zoom on mobile */
+        }
+        button[kind="primary"], button[kind="secondary"], .stButton > button {
+            min-height: 48px !important;
+            font-size: 15px !important;
+        }
+        div[data-baseweb="tab-list"] {
+            gap: 0.3rem !important;
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding-bottom: 0.4rem !important;
+            border-bottom: 1.5px solid #e2e8f0 !important;
+        }
+        div[data-baseweb="tab"] {
+            font-size: 0.8rem !important;
+            padding: 0.45rem 0.65rem !important;
+            white-space: nowrap !important;
+            border-radius: 8px !important;
+            background-color: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        .stMetric {
+            background: #f8fafc;
+            padding: 0.5rem;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 0.4rem;
+        }
+        div[data-testid="stForm"] {
+            padding: 0.65rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
