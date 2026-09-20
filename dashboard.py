@@ -71,6 +71,18 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
+    /* Streamlit Header Clearance Fix */
+    header[data-testid="stHeader"] {
+        background-color: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(8px) !important;
+        z-index: 99 !important;
+    }
+
+    /* Base Container Clearance */
+    .block-container {
+        padding-top: 4.75rem !important;
+    }
+
     /* =======================================================
        DESKTOPS & LAPTOPS (>= 1024px)
        ======================================================= */
@@ -78,7 +90,7 @@ st.markdown("""
         .block-container {
             max-width: 1200px !important;
             margin: 0 auto !important;
-            padding-top: 1.5rem !important;
+            padding-top: 4.75rem !important;
             padding-bottom: 3.5rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
@@ -87,7 +99,9 @@ st.markdown("""
             font-size: 1.85rem !important;
             font-weight: 800;
             color: #0f172a;
+            margin-top: 0.5rem !important;
             margin-bottom: 0.25rem;
+            line-height: 1.3 !important;
         }
         .sub-title {
             font-size: 0.95rem !important;
@@ -117,7 +131,7 @@ st.markdown("""
         .block-container {
             max-width: 95% !important;
             margin: 0 auto !important;
-            padding-top: 1.25rem !important;
+            padding-top: 4.25rem !important;
             padding-bottom: 3rem !important;
             padding-left: 1.25rem !important;
             padding-right: 1.25rem !important;
@@ -125,6 +139,8 @@ st.markdown("""
         .main-title {
             font-size: 1.55rem !important;
             font-weight: 800;
+            margin-top: 0.4rem !important;
+            line-height: 1.3 !important;
         }
         .sub-title {
             font-size: 0.9rem !important;
@@ -152,13 +168,14 @@ st.markdown("""
     @media (max-width: 767px) {
         .block-container {
             max-width: 100% !important;
-            padding-top: 1rem !important;
+            padding-top: 3.75rem !important;
             padding-bottom: 4rem !important;
             padding-left: 0.65rem !important;
             padding-right: 0.65rem !important;
         }
         .main-title {
             font-size: 1.25rem !important;
+            margin-top: 0.35rem !important;
             line-height: 1.3;
         }
         .sub-title {
