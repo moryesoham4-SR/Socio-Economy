@@ -622,7 +622,7 @@ with nav_tab1:
                                 "distance_to_education": str(row.get("How far is the nearest educational institution?", "1 to 3 km")),
                                 "education_difficulties": ["No major difficulty"],
                                 "employment_status": str(row.get("What is your current employment status?", "Employed")),
-                                "primary_occupation": str(row.get("What is your primary occupation?", "Private job")),
+                                "primary_occupation": str(row.get("What is the household's main occupation?", row.get("What is your primary occupation?", "Private job"))),
                                 "earning_members": "1",
                                 "monthly_income": str(row.get("What is your approximate monthly household income?", "20,000 to 30,000 INR")),
                                 "house_type": str(row.get("What type of house do you live in?", "Concrete House / Brick House")),
@@ -839,7 +839,7 @@ with nav_tab1:
                 employment_status_other = st.text_input("Specify other employment status:", value=val_emp_status_other)
                 
             occ_opts = ["Private job", "Business", "Government job", "Agriculture", "Daily wage", "Professional", "Other"]
-            primary_occupation = st.selectbox("What is your primary occupation? *", 
+            primary_occupation = st.selectbox("What is the household's main occupation? *", 
                                              occ_opts, index=safe_index(occ_opts, val_occupation))
             primary_occupation_other = ""
             if primary_occupation == "Other":
@@ -1256,7 +1256,7 @@ with nav_tab2:
 
         ca3, ca4 = st.columns(2)
         with ca3:
-            st.subheader("Primary Occupations")
+            st.subheader("Household Main Occupations")
             occ_counts = df_filtered['primary_occupation'].value_counts().reset_index()
             occ_counts.columns = ['Occupation', 'Count']
             fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal')
@@ -1457,7 +1457,7 @@ with nav_tab5:
                             hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
                             new_hh_members = st.selectbox("Household Members", hh_opts,
                                                          index=hh_opts.index(curr_hh) if curr_hh in hh_opts else 1)
-                            new_occupation = st.text_input("Primary Occupation", value=str(target_row.get('primary_occupation', '')))
+                            new_occupation = st.text_input("Household Main Occupation", value=str(target_row.get('primary_occupation', '')))
                             curr_inc = target_row.get('monthly_income')
                             inc_opts = ["Below 10,000 INR", "10,000 to 20,000 INR", "20,000 to 30,000 INR", "30,000 to 50,000 INR", "50,000 to 75,000 INR", "Above 75,000 INR", "Prefer not to say"]
                             new_income = st.selectbox("Monthly Income", inc_opts,
