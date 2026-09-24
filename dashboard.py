@@ -404,6 +404,35 @@ def parse_gps(notes):
         return float(match.group(1)), float(match.group(2))
     return None, None
 
+def fetch_survey_templates():
+    """Fetch user-designed custom survey templates from Supabase cloud storage."""
+    try:
+        url = f"{SUPABASE_URL}/storage/v1/object/public/survey-photos/survey_templates.json?t={int(time.time())}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("templates", [])
+    except Exception:
+        return []
+
+def save_survey_templates(templates_list):
+    """Save user-designed custom survey templates list to Supabase cloud storage."""
+    try:
+        url = f"{SUPABASE_URL}/storage/v1/object/survey-photos/survey_templates.json"
+        headers = {
+            "apikey": SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+            "x-upsert": "true",
+            "Content-Type": "application/json"
+        }
+        data = json.dumps({"templates": templates_list}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in [200, 201]
+    except Exception as e:
+        st.error(f"Error saving survey templates: {e}")
+        return False
+
 @st.cache_data(ttl=15)
 def fetch_all_responses():
     url = f"{SUPABASE_URL}/rest/v1/survey_responses?select=*&order=created_at.desc"
@@ -574,12 +603,13 @@ with col_head2:
         st.rerun()
 
 # --- Main App Navigation Tabs ---
-nav_tab1, nav_tab2, nav_tab3, nav_tab4, nav_tab5 = st.tabs([
+nav_tab1, nav_tab2, nav_tab3, nav_tab4, nav_tab5, nav_tab6 = st.tabs([
     "📝 Fill Household Survey",
     "📊 Analytics & Indicators",
     "🗺️ Geospatial / GIS Mapping",
     "📸 Photo Evidence Gallery",
-    "📋 Submissions Table & Export"
+    "📋 Submissions Table & Export",
+    "🛠️ Survey Builder & Runner"
 ])
 
 # Helpers for Safe Select & Multiselect Defaults
@@ -1695,3 +1725,344 @@ with nav_tab5:
                                 st.error("Failed to delete record from Supabase.")
         else:
             st.info("No records to display or manage.")
+
+# ==============================================================================
+# TAB 6: SURVEY BUILDER & RUNNER (CUSTOM FORMS)
+# ==============================================================================
+with nav_tab6:
+    st.subheader("🛠️ Custom Survey Builder & Dynamic Survey Runner")
+    st.caption("Design your own surveys with custom questions, choices, GPS, and photo uploads, or take any custom survey on the field. All surveys sync automatically across devices.")
+
+    # Initialize builder questions state
+    if "builder_questions" not in st.session_state:
+        st.session_state.builder_questions = []
+
+    b_tab_runner, b_tab_designer, b_tab_library = st.tabs([
+        "📝 Take Custom Survey",
+        "➕ Design New Survey",
+        "📋 Published Surveys Library"
+    ])
+
+    all_custom_templates = fetch_survey_templates()
+
+    # --- SUB-TAB 1: RUN / TAKE A CUSTOM SURVEY ---
+    with b_tab_runner:
+        if not all_custom_templates:
+            st.info("ℹ️ No custom surveys have been created yet. Switch to the **'➕ Design New Survey'** tab above to design your first questionnaire!")
+        else:
+            surv_runner_map = {f"📋 {s['title']} ({len(s.get('questions', []))} questions)": s for s in all_custom_templates}
+            selected_runner_label = st.selectbox("Choose Custom Survey to Fill:", list(surv_runner_map.keys()), key="sel_custom_runner")
+            chosen_template = surv_runner_map[selected_runner_label]
+
+            st.markdown(f"### 📋 {chosen_template['title']}")
+            if chosen_template.get("description"):
+                st.caption(chosen_template["description"])
+
+            c_form_key = f"c_runner_form_{chosen_template['id']}_{st.session_state.form_render_id}"
+            with st.form(c_form_key):
+                c_answers = {}
+                c_name = ""
+                c_loc = ""
+                c_gps = ""
+                c_uploaded_photos = []
+
+                q_list = chosen_template.get("questions", [])
+                for idx, q in enumerate(q_list):
+                    q_id = q.get("id", f"q_{idx}")
+                    q_title = q.get("title", f"Question {idx+1}")
+                    q_type = q.get("type", "Short Text")
+                    q_req = q.get("required", False)
+                    label = f"{q_title} *" if q_req else q_title
+
+                    if q_type == "Short Text":
+                        ans_val = st.text_input(label, key=f"{c_form_key}_{q_id}", placeholder="Type response...")
+                        c_answers[q_title] = ans_val
+                        if any(k in q_title.lower() for k in ["name", "respondent"]):
+                            c_name = ans_val
+                        elif any(k in q_title.lower() for k in ["locality", "area", "village", "ward", "address"]):
+                            c_loc = ans_val
+
+                    elif q_type == "Paragraph / Long Text":
+                        ans_val = st.text_area(label, key=f"{c_form_key}_{q_id}", placeholder="Type detailed response...")
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Number":
+                        ans_val = st.number_input(label, key=f"{c_form_key}_{q_id}", step=1, value=0)
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Single Choice (Radio)":
+                        opts = q.get("options", ["Option 1", "Option 2"])
+                        ans_val = st.radio(label, opts, key=f"{c_form_key}_{q_id}", horizontal=True)
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Dropdown Select":
+                        opts = q.get("options", ["Option 1", "Option 2"])
+                        ans_val = st.selectbox(label, opts, key=f"{c_form_key}_{q_id}")
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Multiple Choice (Checkboxes)":
+                        opts = q.get("options", ["Option 1", "Option 2"])
+                        ans_val = st.multiselect(label, opts, key=f"{c_form_key}_{q_id}")
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Yes / No":
+                        ans_val = st.radio(label, ["Yes", "No"], key=f"{c_form_key}_{q_id}", horizontal=True)
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "Rating (1 to 5)":
+                        ans_val = st.select_slider(label, options=[1, 2, 3, 4, 5], value=3, key=f"{c_form_key}_{q_id}")
+                        c_answers[q_title] = ans_val
+
+                    elif q_type == "GPS Location (Phone + Manual)":
+                        st.markdown(f"**{label}**")
+                        c_gps_comp = """
+                        <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:6px 10px; margin-bottom:4px; font-family:sans-serif;">
+                            <button type="button" onclick="getRunGPS()" style="background:#059669; color:#fff; border:none; border-radius:5px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer;">
+                                📱 Auto-Detect Phone GPS
+                            </button>
+                            <div id="run-gps-status" style="margin-top:4px; font-size:11px; color:#1e293b;">
+                                <span style="color:#64748b;">Tap to auto-capture high accuracy GPS.</span>
+                            </div>
+                        </div>
+                        <script>
+                        function getRunGPS() {
+                            var s = document.getElementById('run-gps-status');
+                            if (!navigator.geolocation) { s.innerHTML = '<span style="color:#b91c1c;">Geolocation not supported.</span>'; return; }
+                            s.innerHTML = '<span style="color:#2563eb;">📡 Accessing phone GPS sensors...</span>';
+                            navigator.geolocation.getCurrentPosition(
+                                function(pos) {
+                                    var coords = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
+                                    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(coords); }
+                                    try {
+                                        var inps = window.parent.document.querySelectorAll('input');
+                                        for (var i = 0; i < inps.length; i++) {
+                                            var lbl = (inps[i].getAttribute('aria-label') || '').toLowerCase();
+                                            if (lbl.includes('gps') || lbl.includes('coordinate')) {
+                                                inps[i].value = coords;
+                                                inps[i].dispatchEvent(new Event('input', { bubbles: true }));
+                                                inps[i].dispatchEvent(new Event('change', { bubbles: true }));
+                                            }
+                                        }
+                                    } catch(e) {}
+                                    s.innerHTML = '✅ <b>Captured:</b> ' + coords + ' <span style="color:#15803d;">(Copied to clipboard)</span>';
+                                },
+                                function(err) { s.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + (err.message || 'GPS error') + '</span>'; },
+                                { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                            );
+                        }
+                        </script>
+                        """
+                        components.html(c_gps_comp, height=75)
+                        gps_input_val = st.text_input("GPS Coordinates (Latitude, Longitude)", placeholder="e.g. 19.0760, 72.8777", key=f"{c_form_key}_{q_id}_gps")
+                        c_gps = gps_input_val
+                        c_answers[q_title] = gps_input_val
+
+                    elif q_type == "Photo Upload / Camera":
+                        st.markdown(f"**{label}**")
+                        c_cam = st.camera_input("📷 Take Photo", key=f"{c_form_key}_{q_id}_cam")
+                        c_file = st.file_uploader("🖼️ Or Upload Photo", type=["jpg", "png", "jpeg", "webp"], key=f"{c_form_key}_{q_id}_file")
+                        if c_cam:
+                            c_uploaded_photos.append(c_cam)
+                        if c_file:
+                            c_uploaded_photos.append(c_file)
+
+                    st.divider()
+
+                submit_c_survey = st.form_submit_button(f"🚀 Submit {chosen_template['title']} Response", type="primary", use_container_width=True)
+                if submit_c_survey:
+                    missing_fields = []
+                    for q in q_list:
+                        if q.get("required"):
+                            t = q.get("title")
+                            a = c_answers.get(t)
+                            if not a or (isinstance(a, str) and not a.strip()) or (isinstance(a, list) and len(a) == 0):
+                                missing_fields.append(t)
+                    
+                    if missing_fields:
+                        st.error(f"⚠️ Please complete required questions: {', '.join(missing_fields)}")
+                    else:
+                        with st.spinner("Submitting custom survey response to Supabase..."):
+                            saved_p_urls = []
+                            for p_i, photo_obj in enumerate(c_uploaded_photos):
+                                p_url = upload_photo_to_supabase(photo_obj.getvalue(), f"custom_{chosen_template['id']}_{int(time.time())}_{p_i}.jpg")
+                                if p_url:
+                                    saved_p_urls.append(p_url)
+
+                            notes_str = f"[CUSTOM_SURVEY_ID: {chosen_template['id']}] [SURVEY_TITLE: {chosen_template['title']}] "
+                            if c_gps.strip():
+                                notes_str += f"[GPS: {c_gps.strip()}] "
+                            notes_str += f"[CUSTOM_PAYLOAD: {json.dumps(c_answers)}] [SOURCE: Custom Form]"
+
+                            r_name = c_name.strip() if c_name.strip() else f"Respondent ({chosen_template['title']})"
+                            r_loc = c_loc.strip() if c_loc.strip() else "Locality Pending"
+
+                            sub_record = {
+                                "full_name": r_name,
+                                "email": "custom_survey@survey.local",
+                                "gender": "Prefer not to say",
+                                "age": 30,
+                                "locality": r_loc,
+                                "surveyor_notes": notes_str,
+                                "photo_urls": saved_p_urls
+                            }
+
+                            if insert_survey_record(sub_record):
+                                st.success(f"🎉 Response for '{chosen_template['title']}' recorded successfully in Supabase!")
+                                st.session_state.form_render_id += 1
+                                st.cache_data.clear()
+                                time.sleep(1.2)
+                                st.rerun()
+                            else:
+                                st.error("Failed to submit custom survey to Supabase.")
+
+    # --- SUB-TAB 2: DESIGN NEW SURVEY ---
+    with b_tab_designer:
+        st.markdown("### 📝 1. Survey Overview")
+        new_s_title = st.text_input("Survey Title *", placeholder="e.g. Slum Sanitation & Drinking Water Audit", key="new_s_title_key")
+        new_s_desc = st.text_area("Survey Purpose / Instructions", placeholder="e.g. Community-level assessment of water availability and sanitation infrastructure...", key="new_s_desc_key")
+
+        st.markdown("---")
+        st.markdown("### ➕ 2. Add Questions to Questionnaire")
+        
+        col_nq1, col_nq2 = st.columns([2, 1.2])
+        with col_nq1:
+            nq_text = st.text_input("Question Text / Prompt *", placeholder="e.g. What is your primary water source?", key="nq_text_input")
+        with col_nq2:
+            nq_type = st.selectbox(
+                "Answer Type",
+                [
+                    "Short Text",
+                    "Paragraph / Long Text",
+                    "Number",
+                    "Single Choice (Radio)",
+                    "Dropdown Select",
+                    "Multiple Choice (Checkboxes)",
+                    "Yes / No",
+                    "Rating (1 to 5)",
+                    "GPS Location (Phone + Manual)",
+                    "Photo Upload / Camera"
+                ],
+                key="nq_type_select"
+            )
+
+        nq_options = []
+        if nq_type in ["Single Choice (Radio)", "Dropdown Select", "Multiple Choice (Checkboxes)"]:
+            nq_opts_raw = st.text_input(
+                "Choices (comma-separated)",
+                placeholder="e.g. Tap Water, Borewell, Well, Tanker, River, Other",
+                key="nq_opts_input"
+            )
+            if nq_opts_raw.strip():
+                nq_options = [o.strip() for o in nq_opts_raw.split(",") if o.strip()]
+
+        col_nqr, col_nqb = st.columns([1, 1.5])
+        with col_nqr:
+            nq_required = st.checkbox("Mandatory Field (*)", value=True, key="nq_req_box")
+        with col_nqb:
+            if st.button("➕ Add Question", use_container_width=True, type="secondary", key="btn_add_q"):
+                if not nq_text.strip():
+                    st.warning("Please type a question text.")
+                elif nq_type in ["Single Choice (Radio)", "Dropdown Select", "Multiple Choice (Checkboxes)"] and not nq_options:
+                    st.warning("Please enter choices separated by commas.")
+                else:
+                    new_q_entry = {
+                        "id": f"q_{int(time.time()*1000)}",
+                        "title": nq_text.strip(),
+                        "type": nq_type,
+                        "required": nq_required,
+                        "options": nq_options
+                    }
+                    st.session_state.builder_questions.append(new_q_entry)
+                    st.success(f"Added question: '{nq_text.strip()}'")
+                    st.rerun()
+
+        st.markdown("---")
+        st.markdown(f"### 📋 3. Review Questions ({len(st.session_state.builder_questions)})")
+        if not st.session_state.builder_questions:
+            st.info("No questions added yet. Use the question builder above to add questions.")
+        else:
+            for q_i, q_item in enumerate(st.session_state.builder_questions):
+                c_card1, c_card2 = st.columns([4.2, 0.8])
+                with c_card1:
+                    req_badge = " *(Required)*" if q_item.get("required") else " *(Optional)*"
+                    opts_p = f" | Choices: `{', '.join(q_item.get('options', []))}`" if q_item.get("options") else ""
+                    st.markdown(f"**{q_i+1}. {q_item['title']}** `[{q_item['type']}]`{req_badge}{opts_p}")
+                with c_card2:
+                    if st.button("🗑️", key=f"btn_del_q_{q_i}", help="Remove question"):
+                        st.session_state.builder_questions.pop(q_i)
+                        st.rerun()
+
+        st.markdown("---")
+        col_pub1, col_pub2 = st.columns([2, 1])
+        with col_pub1:
+            if st.button("🚀 Publish Survey to Cloud (Sync to Surveyors)", type="primary", use_container_width=True, key="btn_publish_survey"):
+                if not new_s_title.strip():
+                    st.error("⚠️ Please provide a survey title.")
+                elif len(st.session_state.builder_questions) == 0:
+                    st.error("⚠️ Please add at least 1 question to the survey before publishing.")
+                else:
+                    new_id = f"custom_s_{int(time.time())}"
+                    new_s_obj = {
+                        "id": new_id,
+                        "title": new_s_title.strip(),
+                        "description": new_s_desc.strip(),
+                        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "created_by": st.session_state.user_email,
+                        "questions": st.session_state.builder_questions
+                    }
+                    curr_templates = fetch_survey_templates()
+                    curr_templates.append(new_s_obj)
+                    with st.spinner("Publishing survey template to Supabase Cloud..."):
+                        if save_survey_templates(curr_templates):
+                            st.session_state.builder_questions = []
+                            st.success(f"🎉 Survey '{new_s_title}' published successfully! Surveyors can now fill it in the 'Take Custom Survey' tab.")
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("Failed to publish survey to cloud storage.")
+        with col_pub2:
+            if st.button("🧹 Clear Draft Questions", use_container_width=True, key="btn_clear_builder"):
+                st.session_state.builder_questions = []
+                st.rerun()
+
+    # --- SUB-TAB 3: PUBLISHED SURVEYS LIBRARY ---
+    with b_tab_library:
+        # Baseline Survey card
+        st.markdown("""
+        <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+            <h4 style="margin: 0; color: #1e3a8a;">🏡 Baseline Socio-Economic Survey (System Core Survey)</h4>
+            <p style="margin: 4px 0 0 0; font-size: 13px; color: #475569;">
+                The comprehensive 45+ question household community survey (Demographics, Income, Education, Housing, Amenities, Ratings, GIS & Photos).
+            </p>
+            <span style="display:inline-block; margin-top: 6px; font-size: 11px; background: #dbeafe; color: #1e40af; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+                Permanent System Baseline — Active in Tab 1
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if not all_custom_templates:
+            st.info("ℹ️ No custom surveys designed yet. Switch to '➕ Design New Survey' to create one.")
+        else:
+            st.write(f"You have **{len(all_custom_templates)}** custom survey(s) published:")
+            for s_idx, s in enumerate(all_custom_templates):
+                with st.expander(f"📋 **{s['title']}** ({len(s.get('questions', []))} questions)", expanded=True):
+                    st.write(f"**Description:** {s.get('description', 'No description.')}")
+                    st.write(f"**Created:** {s.get('created_at', 'N/A')[:16].replace('T', ' ')}")
+                    
+                    st.markdown("**Questions in this survey:**")
+                    for q_i, q in enumerate(s.get("questions", [])):
+                        req_b = "*(Required)*" if q.get("required") else "*(Optional)*"
+                        opts_str = f" — Choices: `{'`, `'.join(q.get('options', []))}`" if q.get("options") else ""
+                        st.markdown(f"{q_i+1}. **{q.get('title')}** `[{q.get('type')}]` {req_b}{opts_str}")
+                    
+                    st.markdown("---")
+                    col_del1, col_del2 = st.columns([3, 1])
+                    with col_del2:
+                        if st.button("🗑️ Delete Survey", key=f"del_lib_surv_{s['id']}", use_container_width=True):
+                            remaining = [x for x in all_custom_templates if x["id"] != s["id"]]
+                            if save_survey_templates(remaining):
+                                st.success(f"Survey '{s['title']}' deleted.")
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
