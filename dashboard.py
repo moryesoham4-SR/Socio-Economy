@@ -1377,16 +1377,27 @@ with nav_tab3:
         center_lat, center_lon = 19.0760, 72.8777
         zoom_start = 13
 
-    # Build Folium Map with multiple layers
+    # Build Folium Map with 100% Free, Open Tile Layers (No API Key Required)
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None)
 
-    folium.TileLayer('OpenStreetMap', name='🗺️ Street Map').add_to(m)
+    folium.TileLayer(
+        tiles='https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        name='🗺️ Street Map (OpenStreetMap)',
+        show=True
+    ).add_to(m)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri World Imagery',
-        name='🛰️ Satellite View (Esri)'
+        name='🛰️ Satellite View (Esri)',
+        show=False
     ).add_to(m)
-    folium.TileLayer('CartoDB positron', name='🏙️ Clean Light (CartoDB)').add_to(m)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri World Street Map',
+        name='🏙️ Detailed Map (Esri Topo)',
+        show=False
+    ).add_to(m)
 
     # Phone GPS Live Tracking Control
     if LocateControl:
