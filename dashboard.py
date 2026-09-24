@@ -3,6 +3,12 @@ import pandas as pd
 import plotly.express as px
 import folium
 from streamlit_folium import st_folium
+try:
+    from folium.plugins import LocateControl, Fullscreen
+except Exception:
+    LocateControl = None
+    Fullscreen = None
+import streamlit.components.v1 as components
 import urllib.request
 import urllib.error
 import json
@@ -48,19 +54,6 @@ st.markdown("""
         box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25) !important;
         font-size: 15px !important;
         font-weight: 700 !important;
-    }
-
-    /* Section Headers */
-    .section-header {
-        background: linear-gradient(90deg, #eff6ff 0%, #f8fafc 100%);
-        border-left: 4px solid #2563eb;
-        padding: 0.5rem 0.85rem;
-        font-weight: 700;
-        font-size: 0.95rem;
-        color: #1e3a8a;
-        margin-top: 1rem;
-        margin-bottom: 0.75rem;
-        border-radius: 0 0.5rem 0.5rem 0;
     }
 
     /* Tab Pill Active Styles */
@@ -782,8 +775,6 @@ with nav_tab1:
         status_tag = f"Draft Household #{st.session_state.household_count}" if not st.session_state.active_draft_id else "Resuming Saved Survey"
         st.caption(f"Entry Mode: **{entry_mode}** | {status_tag}")
         
-        # Section 1: Respondent Information
-        st.markdown('<div class="section-header">Section 1: Respondent Information</div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             full_name = st.text_input("Full Name *", value=val_name, placeholder="e.g. Ramesh Kumar")
@@ -793,19 +784,70 @@ with nav_tab1:
             email = st.text_input("Email Address", value=val_email, placeholder="e.g. ramesh@example.com (optional for draft)")
             age = st.number_input("Age (Years) *", min_value=1, max_value=120, value=val_age)
             
-        # Section 2: Location and Household
-        st.markdown('<div class="section-header">Section 2: Location & Household</div>', unsafe_allow_html=True)
+        st.divider()
         col3, col4 = st.columns(2)
         with col3:
             locality = st.text_input("Which area or locality do you belong to? *", value=val_locality, placeholder="e.g. Ward 4, Azad Nagar")
-            gps_tag = st.text_input("GPS Coordinates (e.g. 19.0760, 72.8777)", value=val_gps)
+            
+            # Direct Phone GPS Location Detection Widget
+            gps_detect_html = """
+            <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:8px 12px; margin-top:6px; margin-bottom:4px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+                <button type="button" onclick="detectPhoneGPS()" style="background:#059669; color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                    📱 Auto-Detect Phone Location (GPS)
+                </button>
+                <div id="gps-status" style="margin-top:6px; font-size:12px; color:#1e293b; line-height:1.4;">
+                    <span style="color:#64748b;">Tap above to auto-detect high-accuracy GPS coordinates from your phone.</span>
+                </div>
+            </div>
+            <script>
+            function detectPhoneGPS() {
+                var statusEl = document.getElementById('gps-status');
+                if (!navigator.geolocation) {
+                    statusEl.innerHTML = '<span style="color:#b91c1c;">❌ Geolocation not supported by your browser. Enter coordinates manually below.</span>';
+                    return;
+                }
+                statusEl.innerHTML = '<span style="color:#2563eb;">📡 Accessing device GPS sensors... Please allow location access if prompted.</span>';
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        var lat = pos.coords.latitude.toFixed(6);
+                        var lon = pos.coords.longitude.toFixed(6);
+                        var acc = Math.round(pos.coords.accuracy);
+                        var coords = lat + ", " + lon;
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(coords);
+                        }
+                        try {
+                            var inputs = window.parent.document.querySelectorAll('input');
+                            for (var i = 0; i < inputs.length; i++) {
+                                var aria = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
+                                var ph = (inputs[i].getAttribute('placeholder') || '').toLowerCase();
+                                if (aria.includes('gps') || ph.includes('19.0760')) {
+                                    inputs[i].value = coords;
+                                    inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
+                                    inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
+                                }
+                            }
+                        } catch(e) {}
+                        statusEl.innerHTML = '✅ <b>Captured:</b> <span style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">' + coords + '</span> <span style="color:#059669; font-weight:600;">(±' + acc + 'm accuracy)</span><br><span style="color:#15803d; font-size:11px;">📋 Auto-copied to clipboard! Auto-filled or paste into the GPS field below.</span>';
+                    },
+                    function(err) {
+                        var msg = err.message || 'Unable to retrieve location';
+                        if (err.code === 1) msg = 'Location permission denied by browser. Please enable location permission in browser settings.';
+                        statusEl.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + msg + '</span>';
+                    },
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                );
+            }
+            </script>
+            """
+            components.html(gps_detect_html, height=105)
+            gps_tag = st.text_input("GPS Coordinates (Latitude, Longitude)", value=val_gps, placeholder="e.g. 19.0760, 72.8777", help="Format: Latitude, Longitude. Auto-detect using phone GPS above or type/paste manually.")
         with col4:
             hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
             household_members = st.radio("How many members are there in your household? *", 
                                          hh_opts, index=safe_index(hh_opts, val_hh_members, 1), horizontal=True)
 
-        # Section 3: Education
-        st.markdown('<div class="section-header">Section 3: Education</div>', unsafe_allow_html=True)
+        st.divider()
         q_opts = ["Undergraduate", "Higher Secondary", "Secondary", "Primary", "Diploma", "Postgraduate", "No formal education", "Other"]
         highest_qualification = st.selectbox(
             "What is your highest educational qualification? *",
@@ -834,8 +876,7 @@ with nav_tab1:
         if "Other" in education_difficulties:
             education_difficulties_other = st.text_input("Specify other education difficulty:", value=val_edu_diff_other)
 
-        # Section 4: Employment & Income
-        st.markdown('<div class="section-header">Section 4: Employment & Income</div>', unsafe_allow_html=True)
+        st.divider()
         col7, col8 = st.columns(2)
         with col7:
             emp_opts = ["Employed", "Self-employed", "Student", "Homemaker", "Unemployed", "Retired", "Other"]
@@ -862,8 +903,7 @@ with nav_tab1:
                 index=safe_index(inc_opts, val_income, 2)
             )
 
-        # Section 5: Housing, Water & Basic Amenities
-        st.markdown('<div class="section-header">Section 5: Housing & Basic Living Conditions</div>', unsafe_allow_html=True)
+        st.divider()
         col9, col10 = st.columns(2)
         with col9:
             house_opts = ["Concrete House / Brick House", "Apartment or Flat", "Tiled Roof House / Sheet Roof House", "Mud House / Thatched House", "Other"]
@@ -903,8 +943,7 @@ with nav_tab1:
             if waste_disposal == "Other":
                 waste_disposal_other = st.text_input("Specify other waste disposal method:", value=val_waste_other)
 
-        # Section 6: Digital Access
-        st.markdown('<div class="section-header">Section 6: Digital Access</div>', unsafe_allow_html=True)
+        st.divider()
         col11, col12 = st.columns(2)
         with col11:
             net_opts = ["Yes", "No"]
@@ -920,8 +959,7 @@ with nav_tab1:
             if "Other" in internet_devices:
                 internet_devices_other = st.text_input("Specify other internet device:", value=val_devices_other)
 
-        # Section 7: Essential Services Rating & Local Problems
-        st.markdown('<div class="section-header">Section 7: Community Problems & Service Ratings</div>', unsafe_allow_html=True)
+        st.divider()
         st.write("Rate access to essential services in your area from **1 (Very Poor)** to **5 (Very Good)**:")
         
         r_c1, r_c2 = st.columns(2)
@@ -953,9 +991,9 @@ with nav_tab1:
         if "Other" in highest_priority:
             highest_priority_other = st.text_input("Specify other priority:", value=val_priority_other)
 
-        # Section 8: Photo Evidence (Only if On-Field)
+        # Photo Evidence (Only if On-Field)
         if "On-Field" in entry_mode:
-            st.markdown('<div class="section-header">Section 8: Photo Evidence & Field Notes</div>', unsafe_allow_html=True)
+            st.divider()
             if saved_photos:
                 st.caption(f"📸 **Photos Already Saved with this Survey ({len(saved_photos)})**:")
                 p_cols = st.columns(min(len(saved_photos), 4))
@@ -1292,8 +1330,8 @@ with nav_tab2:
 # TAB 3: GEOSPATIAL / GIS MAPPING
 # ==============================================================================
 with nav_tab3:
-    st.subheader(f"🗺️ Geospatial Household Ground-Truth Map ({data_source_trigger})")
-    st.caption("Pins show GPS-tagged locations with household profiles.")
+    st.subheader(f"🗺️ GIS Mapping & Household Ground-Truth ({data_source_trigger})")
+    st.caption("Interactive GIS map with direct phone location detection, satellite imagery, household pins, and manual coordinate search.")
 
     def parse_gps(notes):
         if not isinstance(notes, str):
@@ -1303,39 +1341,126 @@ with nav_tab3:
             return float(match.group(1)), float(match.group(2))
         return None, None
 
-    if not df_filtered.empty:
+    # Manual Coordinate Search & Pin Bar
+    col_gis1, col_gis2 = st.columns([3, 1])
+    with col_gis1:
+        manual_gis_search = st.text_input(
+            "📍 Manual Coordinate Search / Custom Pin (Latitude, Longitude):", 
+            placeholder="e.g. 19.0760, 72.8777",
+            key="gis_manual_search"
+        )
+    with col_gis2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        pin_manual_btn = st.button("📌 Pin on Map", use_container_width=True, key="btn_gis_pin")
+
+    manual_point = None
+    if manual_gis_search and manual_gis_search.strip():
+        m_match = re.search(r'([+-]?\d+\.?\d*)\s*,\s*([+-]?\d+\.?\d*)', manual_gis_search.strip())
+        if m_match:
+            manual_point = (float(m_match.group(1)), float(m_match.group(2)))
+
+    # Parse filtered survey GPS coordinates
+    valid_coords = []
+    if not df_filtered.empty and 'surveyor_notes' in df_filtered.columns:
         gps_coords = [parse_gps(n) for n in df_filtered['surveyor_notes']]
         valid_coords = [(lat, lon, df_filtered.iloc[i]) for i, (lat, lon) in enumerate(gps_coords) if lat is not None and lon is not None]
 
-        if valid_coords:
-            center_lat = sum([c[0] for c in valid_coords]) / len(valid_coords)
-            center_lon = sum([c[1] for c in valid_coords]) / len(valid_coords)
-            m = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="CartoDB positron")
-
-            for lat, lon, row in valid_coords:
-                is_gform = row.get("source_type") == "Google Form"
-                marker_color = "green" if is_gform else "blue"
-                popup_html = f"""
-                <div style="font-family: sans-serif; font-size: 12px; width: 200px;">
-                    <b style="color: #2563eb;">{row['full_name']}</b> ({row.get('source_type', 'On-Field')})<br>
-                    <span>{row['locality']}</span><hr style="margin: 4px 0;">
-                    <b>House:</b> {row['house_type']}<br>
-                    <b>Income:</b> {row['monthly_income']}<br>
-                    <b>Water:</b> {row['drinking_water_source']}<br>
-                </div>
-                """
-                folium.Marker(
-                    location=[lat, lon],
-                    popup=folium.Popup(popup_html, max_width=250),
-                    tooltip=f"{row['full_name']} ({row.get('source_type', 'On-Field')})",
-                    icon=folium.Icon(color=marker_color, icon="home", prefix="fa")
-                ).add_to(m)
-
-            st_folium(m, width="100%", height=500)
-        else:
-            st.info("ℹ️ No GPS coordinates found in the filtered records. Enter GPS coordinates during survey entry to display map pins.")
+    # Determine center and zoom level
+    if manual_point:
+        center_lat, center_lon = manual_point
+        zoom_start = 16
+    elif valid_coords:
+        center_lat = sum([c[0] for c in valid_coords]) / len(valid_coords)
+        center_lon = sum([c[1] for c in valid_coords]) / len(valid_coords)
+        zoom_start = 14
     else:
-        st.info("No records to display on map.")
+        center_lat, center_lon = 19.0760, 72.8777
+        zoom_start = 13
+
+    # Build Folium Map with multiple layers
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None)
+
+    folium.TileLayer('OpenStreetMap', name='🗺️ Street Map').add_to(m)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri World Imagery',
+        name='🛰️ Satellite View (Esri)'
+    ).add_to(m)
+    folium.TileLayer('CartoDB positron', name='🏙️ Clean Light (CartoDB)').add_to(m)
+
+    # Phone GPS Live Tracking Control
+    if LocateControl:
+        LocateControl(
+            auto_start=False,
+            keepCurrentZoomLevel=False,
+            locateOptions={"enableHighAccuracy": True, "maxZoom": 18},
+            strings={"title": "📍 Track My Phone Location (GPS)"}
+        ).add_to(m)
+
+    # Fullscreen control
+    if Fullscreen:
+        Fullscreen(position='topleft').add_to(m)
+
+    # Layer Switcher
+    folium.LayerControl(position='topright').add_to(m)
+
+    # Plot Household survey markers
+    for lat, lon, row in valid_coords:
+        is_gform = row.get("source_type") == "Google Form"
+        marker_color = "green" if is_gform else "blue"
+        occ_display = row.get('household_main_occupation', row.get('primary_occupation', 'N/A'))
+        popup_html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; width: 220px; line-height: 1.4;">
+            <b style="color: #2563eb; font-size: 13px;">{row['full_name']}</b><br>
+            <span style="color: #64748b;">📍 {row['locality']} ({row.get('source_type', 'On-Field')})</span><hr style="margin: 5px 0;">
+            <b>Occupation:</b> {occ_display}<br>
+            <b>House:</b> {row['house_type']}<br>
+            <b>Income:</b> {row['monthly_income']}<br>
+            <b>Water:</b> {row['drinking_water_source']}<br>
+            <b>GPS:</b> {lat:.6f}, {lon:.6f}
+        </div>
+        """
+        folium.Marker(
+            location=[lat, lon],
+            popup=folium.Popup(popup_html, max_width=260),
+            tooltip=f"{row['full_name']} — {row['locality']}",
+            icon=folium.Icon(color=marker_color, icon="home", prefix="fa")
+        ).add_to(m)
+
+    # Plot Manual Location Pin if searched
+    if manual_point:
+        folium.Marker(
+            location=[manual_point[0], manual_point[1]],
+            popup=folium.Popup(f"<b>📍 Manually Pinned Location:</b><br>{manual_point[0]:.6f}, {manual_point[1]:.6f}", max_width=250),
+            tooltip=f"Manual Pin: {manual_point[0]:.6f}, {manual_point[1]:.6f}",
+            icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
+        ).add_to(m)
+        folium.Circle(
+            location=[manual_point[0], manual_point[1]],
+            radius=60,
+            color="red",
+            weight=2,
+            fill=True,
+            fill_opacity=0.15
+        ).add_to(m)
+
+    # Render Map & Capture User Click
+    map_data = st_folium(m, width="100%", height=520, returned_objects=["last_clicked"])
+
+    # Click-to-Coordinate Feedback
+    if map_data and map_data.get("last_clicked"):
+        c_lat = map_data["last_clicked"]["lat"]
+        c_lng = map_data["last_clicked"]["lng"]
+        st.success(f"📍 **Selected Point Coordinates:** `{c_lat:.6f}, {c_lng:.6f}` — Clicked on map")
+
+    col_gis_info1, col_gis_info2 = st.columns([2, 1])
+    with col_gis_info1:
+        if valid_coords:
+            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged household profiles. 🔵 Blue = On-Field Survey | 🟢 Green = Google Form import | 🔴 Red = Manual Pin.")
+        else:
+            st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
+    with col_gis_info2:
+        st.caption("💡 **Tip:** Tap 📍 on top-left to track phone GPS. Toggle 🛰️ Satellite view on top-right.")
 
 # ==============================================================================
 # TAB 4: PHOTO EVIDENCE GALLERY
