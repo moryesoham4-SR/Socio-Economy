@@ -396,6 +396,14 @@ def delete_survey_record(record_id):
     with urllib.request.urlopen(req, timeout=15) as resp:
         return resp.status in [200, 204]
 
+def parse_gps(notes):
+    if not isinstance(notes, str):
+        return None, None
+    match = re.search(r'\[GPS:\s*([+-]?\d+\.?\d*),\s*([+-]?\d+\.?\d*)\]', notes)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    return None, None
+
 @st.cache_data(ttl=15)
 def fetch_all_responses():
     url = f"{SUPABASE_URL}/rest/v1/survey_responses?select=*&order=created_at.desc"
@@ -423,8 +431,16 @@ def fetch_all_responses():
                     name = str(row.get("full_name", ""))
                     return "[STATUS: DRAFT]" in notes or name.startswith("[DRAFT]")
 
+                def extract_gps_str(row):
+                    notes = str(row.get("surveyor_notes", ""))
+                    lat, lon = parse_gps(notes)
+                    if lat is not None and lon is not None:
+                        return f"{lat:.6f}, {lon:.6f}"
+                    return ""
+
                 df["source_type"] = df.apply(extract_source, axis=1)
                 df["is_draft"] = df.apply(extract_draft_status, axis=1)
+                df["gps_coordinates"] = df.apply(extract_gps_str, axis=1)
 
                 # Standardize column naming: primary_occupation -> household_main_occupation
                 if "primary_occupation" in df.columns:
@@ -1590,6 +1606,10 @@ with nav_tab5:
             with edit_col:
                 with st.expander(f"✏️ Edit Details for **{target_row['full_name']}**", expanded=True):
                     with st.form(f"edit_form_{selected_id}"):
+                        curr_raw_notes = str(target_row.get('surveyor_notes', ''))
+                        lat_e, lon_e = parse_gps(curr_raw_notes)
+                        existing_gps_str = f"{lat_e:.6f}, {lon_e:.6f}" if (lat_e is not None and lon_e is not None) else ""
+
                         e_c1, e_c2 = st.columns(2)
                         with e_c1:
                             new_name = st.text_input("Full Name", value=str(target_row.get('full_name', '')))
@@ -1597,6 +1617,7 @@ with nav_tab5:
                             new_gender = st.selectbox("Gender", ["Male", "Female", "Prefer not to say"], 
                                                      index=["Male", "Female", "Prefer not to say"].index(curr_g) if curr_g in ["Male", "Female", "Prefer not to say"] else 0)
                             new_locality = st.text_input("Locality / Area", value=str(target_row.get('locality', '')))
+                            new_gps = st.text_input("GPS Coordinates (Latitude, Longitude)", value=existing_gps_str, placeholder="e.g. 19.0760, 72.8777", help="Format: Latitude, Longitude. Used for GIS ground-truth map.")
                             curr_hh = target_row.get('household_members', '3 to 4')
                             hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
                             new_hh_members = st.selectbox("Household Members", hh_opts,
@@ -1617,10 +1638,24 @@ with nav_tab5:
                             new_toilet = st.selectbox("Toilet Access", toilet_opts,
                                                      index=toilet_opts.index(curr_toilet) if curr_toilet in toilet_opts else 0)
 
-                        new_notes = st.text_area("Surveyor Notes", value=str(target_row.get('surveyor_notes', '')))
+                        # Clean notes display without raw tags
+                        clean_notes_val = re.sub(r'\[GPS:\s*[+-]?\d+\.?\d*,\s*[+-]?\d+\.?\d*\]', '', curr_raw_notes)
+                        clean_notes_val = re.sub(r'\[SOURCE:[^\]]+\]', '', clean_notes_val).strip()
+                        new_notes = st.text_area("Surveyor Notes / Observations", value=clean_notes_val, placeholder="Observations or notes...")
                         
                         save_edit = st.form_submit_button("💾 Save Changes to Record", type="primary", use_container_width=True)
                         if save_edit:
+                            src_match = re.search(r'\[SOURCE:[^\]]+\]', curr_raw_notes)
+                            src_prefix = src_match.group(0) + " " if src_match else ""
+                            
+                            final_notes_str = src_prefix
+                            if new_gps.strip():
+                                clean_gps = new_gps.replace("[", "").replace("]", "").replace("GPS:", "").strip()
+                                final_notes_str += f"[GPS: {clean_gps}] "
+                            if new_notes.strip():
+                                final_notes_str += new_notes.strip()
+                            final_notes_str = final_notes_str.strip()
+
                             updated_payload = {
                                 "full_name": new_name.strip(),
                                 "email": new_email.strip(),
@@ -1634,7 +1669,7 @@ with nav_tab5:
                                 "drinking_water_source": new_water.strip(),
                                 "has_electricity": new_electricity,
                                 "toilet_access": new_toilet,
-                                "surveyor_notes": new_notes.strip() if new_notes.strip() else None
+                                "surveyor_notes": final_notes_str if final_notes_str else None
                             }
                             with st.spinner("Updating record in Supabase..."):
                                 if update_survey_record(selected_id, updated_payload):
