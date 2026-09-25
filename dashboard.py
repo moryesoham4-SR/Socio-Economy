@@ -31,169 +31,11 @@ if "theme_mode" not in st.session_state:
 is_dark = st.session_state.theme_mode == "🌙 Dark"
 plotly_template = "plotly_dark" if is_dark else "plotly_white"
 
-if is_dark:
-    st.markdown("""
-    <style>
-        /* Global Dark Mode Overrides */
-        html, body, [data-testid="stAppViewContainer"], .main, .block-container {
-            background-color: #0b1120 !important;
-            color: #f1f5f9 !important;
-        }
-
-        [data-testid="stSidebar"], section[data-testid="stSidebar"] {
-            background-color: #0f172a !important;
-            border-right: 1px solid #1e293b !important;
-        }
-
-        [data-testid="stSidebar"] * {
-            color: #e2e8f0 !important;
-        }
-
-        header[data-testid="stHeader"] {
-            background-color: rgba(15, 23, 42, 0.92) !important;
-            backdrop-filter: blur(10px) !important;
-        }
-
-        .main-title {
-            color: #f8fafc !important;
-        }
-
-        .sub-title {
-            color: #94a3b8 !important;
-        }
-
-        /* Form Inputs, Selectboxes, Textareas, NumberInputs */
-        input, textarea, select, 
-        div[data-baseweb="select"] > div,
-        div[data-baseweb="input"] > div,
-        div[data-baseweb="input"] input {
-            background-color: #1e293b !important;
-            color: #f8fafc !important;
-            border-color: #334155 !important;
-        }
-
-        input::placeholder, textarea::placeholder {
-            color: #64748b !important;
-        }
-
-        /* Dropdown popover menus */
-        div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"], li[role="option"] {
-            background-color: #1e293b !important;
-            color: #f8fafc !important;
-        }
-        li[role="option"]:hover, li[aria-selected="true"] {
-            background-color: #334155 !important;
-        }
-
-        /* Expanders & Accordions */
-        div[data-testid="stExpander"] {
-            background-color: #1e293b !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-        }
-        details summary {
-            color: #f8fafc !important;
-        }
-        details summary svg {
-            fill: #94a3b8 !important;
-        }
-
-        /* Tabs Styling */
-        div[data-baseweb="tab-list"] {
-            border-bottom: 2px solid #334155 !important;
-        }
-        div[data-baseweb="tab"] {
-            background-color: #1e293b !important;
-            border-color: #334155 !important;
-            color: #94a3b8 !important;
-        }
-        div[aria-selected="true"] {
-            background-color: #0284c7 !important;
-            border-color: #38bdf8 !important;
-            color: #ffffff !important;
-            font-weight: 700 !important;
-        }
-
-        /* Metrics Cards */
-        .stMetric, div[data-testid="stMetric"] {
-            background-color: #1e293b !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-        }
-        div[data-testid="stMetricValue"] {
-            color: #38bdf8 !important;
-        }
-        div[data-testid="stMetricLabel"] {
-            color: #94a3b8 !important;
-        }
-
-        /* Info, Success, Warning Alerts */
-        div[data-testid="stAlert"] {
-            background-color: #1e293b !important;
-            border: 1px solid #334155 !important;
-            color: #e2e8f0 !important;
-        }
-
-        /* Dataframe */
-        div[data-testid="stDataFrame"] {
-            background-color: #1e293b !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-        }
-
-        /* Buttons */
-        button[kind="secondary"], .stButton > button:not([kind="primary"]) {
-            background-color: #1e293b !important;
-            color: #f8fafc !important;
-            border: 1px solid #475569 !important;
-        }
-        button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {
-            background-color: #334155 !important;
-            border-color: #64748b !important;
-        }
-
-        /* Form container */
-        div[data-testid="stForm"] {
-            background-color: #131d31 !important;
-            border: 1px solid #334155 !important;
-            border-radius: 10px !important;
-        }
-
-        /* Sliders */
-        div[data-baseweb="slider"] {
-            color: #f8fafc !important;
-        }
-
-        /* Custom Cards & Containers */
-        div[style*="background: #f8fafc"], div[style*="background:#f8fafc"], 
-        div[style*="background: #f0fdf4"], div[style*="background:#f0fdf4"],
-        div[style*="background:#eff6ff"], div[style*="background: #eff6ff"] {
-            background-color: #1e293b !important;
-            border-color: #334155 !important;
-            color: #f8fafc !important;
-        }
-        div[style*="background: #f8fafc"] *, div[style*="background:#f0fdf4"] * {
-            color: #e2e8f0 !important;
-        }
-
-        /* Code snippets */
-        code {
-            background-color: #1e293b !important;
-            color: #38bdf8 !important;
-            border: 1px solid #334155 !important;
-        }
-
-        /* Dividers */
-        hr {
-            border-color: #334155 !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-# Universal Responsive Design (Desktops, Laptops, Tablets & Phones)
+# --- Theme & Responsive CSS Architecture ---
+# 1. Base Responsive Sizing & Layout (Theme Neutral)
 st.markdown("""
 <style>
-    /* Base Responsive Typography & Inputs */
+    /* Base Typography & Input Sizing */
     html, body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
@@ -222,21 +64,6 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Tab Pill Active Styles */
-    div[aria-selected="true"] {
-        background-color: #eff6ff !important;
-        border-color: #3b82f6 !important;
-        color: #1d4ed8 !important;
-        font-weight: 700 !important;
-    }
-
-    /* Streamlit Header Clearance Fix */
-    header[data-testid="stHeader"] {
-        background-color: rgba(255, 255, 255, 0.85) !important;
-        backdrop-filter: blur(8px) !important;
-        z-index: 99 !important;
-    }
-
     /* Base Container Clearance */
     .block-container {
         padding-top: 4.75rem !important;
@@ -257,14 +84,12 @@ st.markdown("""
         .main-title {
             font-size: 1.85rem !important;
             font-weight: 800;
-            color: #0f172a;
             margin-top: 0.5rem !important;
             margin-bottom: 0.25rem;
             line-height: 1.3 !important;
         }
         .sub-title {
             font-size: 0.95rem !important;
-            color: #64748b;
             margin-bottom: 1.25rem;
         }
         div[data-baseweb="tab-list"] {
@@ -279,7 +104,6 @@ st.markdown("""
             border-radius: 8px 8px 0 0 !important;
             border: 1px solid #e2e8f0 !important;
             border-bottom: none !important;
-            background-color: #f8fafc !important;
         }
     }
 
@@ -317,7 +141,6 @@ st.markdown("""
             white-space: nowrap !important;
             border-radius: 8px !important;
             border: 1px solid #e2e8f0 !important;
-            background-color: #f8fafc !important;
         }
     }
 
@@ -361,14 +184,11 @@ st.markdown("""
             padding: 0.45rem 0.65rem !important;
             white-space: nowrap !important;
             border-radius: 8px !important;
-            background-color: #f8fafc !important;
             border: 1px solid #e2e8f0 !important;
         }
         .stMetric {
-            background: #f8fafc;
             padding: 0.5rem;
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
             margin-bottom: 0.4rem;
         }
         div[data-testid="stForm"] {
@@ -377,6 +197,342 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# 2. Theme-Specific Styling (Light vs Dark)
+if not is_dark:
+    st.markdown("""
+    <style>
+        header[data-testid="stHeader"] {
+            background-color: rgba(255, 255, 255, 0.85) !important;
+            backdrop-filter: blur(8px) !important;
+            z-index: 99 !important;
+        }
+        .main-title {
+            color: #0f172a !important;
+        }
+        .sub-title {
+            color: #64748b !important;
+        }
+        div[data-baseweb="tab"] {
+            background-color: #f8fafc !important;
+            color: #475569 !important;
+        }
+        div[data-baseweb="tab"] * {
+            color: #475569 !important;
+        }
+        div[aria-selected="true"] {
+            background-color: #eff6ff !important;
+            border-color: #3b82f6 !important;
+            color: #1d4ed8 !important;
+            font-weight: 700 !important;
+        }
+        div[aria-selected="true"] * {
+            color: #1d4ed8 !important;
+        }
+        .stMetric {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+        /* === GLOBAL DARK CANVAS === */
+        html, body, [data-testid="stAppViewContainer"], .main, .block-container {
+            background-color: #0b1120 !important;
+            color: #f1f5f9 !important;
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"], section[data-testid="stSidebar"] {
+            background-color: #0f172a !important;
+            border-right: 1px solid #1e293b !important;
+        }
+        [data-testid="stSidebar"] * {
+            color: #e2e8f0 !important;
+        }
+
+        /* App Header */
+        header[data-testid="stHeader"] {
+            background-color: rgba(15, 23, 42, 0.95) !important;
+            backdrop-filter: blur(10px) !important;
+            border-bottom: 1px solid #1e293b !important;
+            z-index: 99 !important;
+        }
+
+        /* Titles & Subtitles */
+        .main-title {
+            color: #f8fafc !important;
+        }
+        .sub-title {
+            color: #94a3b8 !important;
+        }
+        .sub-title b {
+            color: #38bdf8 !important;
+        }
+
+        /* === COMPREHENSIVE TEXT & HEADINGS VISIBILITY === */
+        h1, h2, h3, h4, h5, h6,
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6,
+        div[data-testid="stMarkdownContainer"] h1,
+        div[data-testid="stMarkdownContainer"] h2,
+        div[data-testid="stMarkdownContainer"] h3,
+        div[data-testid="stMarkdownContainer"] h4,
+        div[data-testid="stMarkdownContainer"] h5,
+        div[data-testid="stMarkdownContainer"] h6 {
+            color: #f8fafc !important;
+        }
+
+        div[data-testid="stMarkdownContainer"] p,
+        div[data-testid="stMarkdownContainer"] span,
+        div[data-testid="stMarkdownContainer"] li,
+        div[data-testid="stMarkdownContainer"] strong,
+        div[data-testid="stMarkdownContainer"] b {
+            color: #e2e8f0 !important;
+        }
+
+        .stCaption, [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+            color: #94a3b8 !important;
+        }
+
+        /* === ALL INPUT & WIDGET LABELS (CRITICAL FIX) === */
+        [data-testid="stWidgetLabel"],
+        [data-testid="stWidgetLabel"] *,
+        [data-testid="stWidgetLabel"] label,
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] span {
+            color: #f8fafc !important;
+            font-weight: 600 !important;
+        }
+
+        /* === RADIO BUTTONS & CHECKBOXES (OPTIONS TEXT CRITICAL FIX) === */
+        div[data-testid="stRadio"] label,
+        div[data-testid="stRadio"] label *,
+        div[data-testid="stRadio"] p,
+        div[data-testid="stRadio"] span,
+        div[data-testid="stRadio"] div,
+        div[data-testid="stRadio"] div[role="radiogroup"] *,
+        div[data-testid="stCheckbox"] label,
+        div[data-testid="stCheckbox"] label *,
+        div[data-testid="stCheckbox"] p,
+        div[data-testid="stCheckbox"] span,
+        div[data-testid="stCheckbox"] div {
+            color: #f1f5f9 !important;
+        }
+
+        /* === TABS STYLING (ACTIVE & INACTIVE FIX) === */
+        div[data-baseweb="tab-list"] {
+            border-bottom: 2px solid #334155 !important;
+        }
+        div[data-baseweb="tab"], 
+        button[data-baseweb="tab"], 
+        [data-baseweb="tab"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-bottom: none !important;
+            color: #cbd5e1 !important;
+        }
+        div[data-baseweb="tab"] *, 
+        button[data-baseweb="tab"] *, 
+        [data-baseweb="tab"] *,
+        div[data-baseweb="tab"] p, 
+        button[data-baseweb="tab"] p, 
+        div[data-baseweb="tab"] span, 
+        button[data-baseweb="tab"] span, 
+        div[data-baseweb="tab"] div, 
+        button[data-baseweb="tab"] div {
+            color: #cbd5e1 !important;
+        }
+
+        /* Active Tab */
+        div[aria-selected="true"],
+        button[aria-selected="true"],
+        [data-baseweb="tab"][aria-selected="true"] {
+            background-color: #0284c7 !important;
+            border-color: #38bdf8 !important;
+        }
+        div[aria-selected="true"] *,
+        button[aria-selected="true"] *,
+        [data-baseweb="tab"][aria-selected="true"] *,
+        div[aria-selected="true"] p,
+        button[aria-selected="true"] p,
+        div[aria-selected="true"] span,
+        button[aria-selected="true"] span,
+        div[aria-selected="true"] div,
+        button[aria-selected="true"] div {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+
+        /* === INPUT FIELDS, TEXTAREAS, SELECTBOXES === */
+        input, textarea, select, 
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="select"] *,
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="input"] input,
+        div[data-baseweb="base-input"] input {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        input::placeholder, textarea::placeholder {
+            color: #64748b !important;
+        }
+
+        div[data-baseweb="select"] svg {
+            fill: #cbd5e1 !important;
+        }
+
+        div[data-testid="stNumberInput"] button {
+            background-color: #334155 !important;
+            color: #f8fafc !important;
+            border-color: #475569 !important;
+        }
+        div[data-testid="stNumberInput"] button svg {
+            fill: #f8fafc !important;
+        }
+
+        /* Popover dropdowns */
+        div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"], li[role="option"] {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+        }
+        li[role="option"]:hover, li[aria-selected="true"] {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+        }
+        li[role="option"] * {
+            color: #f8fafc !important;
+        }
+
+        /* Multiselect tags */
+        div[data-baseweb="tag"] {
+            background-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        div[data-baseweb="tag"] * {
+            color: #f8fafc !important;
+        }
+
+        /* Sliders */
+        div[data-baseweb="slider"] *,
+        div[data-testid="stSliderTickBar"] *,
+        div[data-testid="stSlider"] * {
+            color: #f8fafc !important;
+        }
+
+        /* === METRICS CARDS === */
+        .stMetric, div[data-testid="stMetric"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+        div[data-testid="stMetricValue"] {
+            color: #38bdf8 !important;
+        }
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricLabel"] * {
+            color: #94a3b8 !important;
+        }
+
+        /* === FORM CONTAINER === */
+        div[data-testid="stForm"] {
+            background-color: #131d31 !important;
+            border: 1px solid #334155 !important;
+            border-radius: 10px !important;
+        }
+
+        /* === EXPANDERS === */
+        div[data-testid="stExpander"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+        div[data-testid="stExpander"] details summary,
+        div[data-testid="stExpander"] details summary * {
+            color: #f8fafc !important;
+        }
+        div[data-testid="stExpander"] details summary svg {
+            fill: #94a3b8 !important;
+        }
+
+        /* === ALERTS & BANNERS === */
+        div[data-testid="stAlert"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            color: #e2e8f0 !important;
+        }
+        div[data-testid="stAlert"] * {
+            color: #e2e8f0 !important;
+        }
+
+        /* === BUTTONS === */
+        button[kind="secondary"], .stButton > button:not([kind="primary"]) {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border: 1px solid #475569 !important;
+        }
+        button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {
+            background-color: #334155 !important;
+            border-color: #64748b !important;
+        }
+
+        /* === FILE UPLOADER === */
+        [data-testid="stFileUploader"] section {
+            background-color: #1e293b !important;
+            border: 2px dashed #475569 !important;
+        }
+        [data-testid="stFileUploader"] section * {
+            color: #cbd5e1 !important;
+        }
+        [data-testid="stFileUploader"] button {
+            background-color: #334155 !important;
+            color: #f8fafc !important;
+            border: 1px solid #475569 !important;
+        }
+
+        /* === CUSTOM CARDS & INLINE CONTAINER FIXES === */
+        div[style*="background: #f8fafc"], div[style*="background:#f8fafc"], 
+        div[style*="background: #f0fdf4"], div[style*="background:#f0fdf4"],
+        div[style*="background:#eff6ff"], div[style*="background: #eff6ff"] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        div[style*="background: #f8fafc"] *, div[style*="background:#f0fdf4"] *, div[style*="background:#eff6ff"] * {
+            color: #e2e8f0 !important;
+        }
+        div[style*="background: #f8fafc"] h4, div[style*="background:#f8fafc"] h4 {
+            color: #38bdf8 !important;
+        }
+        div[style*="background: #f8fafc"] p, div[style*="background:#f8fafc"] p {
+            color: #cbd5e1 !important;
+        }
+        div[style*="background: #f8fafc"] span, div[style*="background:#eff6ff"] span {
+            background-color: #1e3a8a !important;
+            color: #93c5fd !important;
+        }
+
+        /* === DATAFRAMES === */
+        div[data-testid="stDataFrame"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+
+        /* === CODE SNIPPETS & DIVIDERS === */
+        code {
+            background-color: #1e293b !important;
+            color: #38bdf8 !important;
+            border: 1px solid #334155 !important;
+        }
+        hr {
+            border-color: #334155 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- Supabase Credentials ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", "https://tsfzjhapftoacachqute.supabase.co"))
@@ -1027,20 +1183,24 @@ def render_dynamic_custom_survey(chosen_template, form_key_prefix="runner"):
 
             elif q_type == "GPS Location (Phone + Manual)":
                 st.markdown(f"**{label}**")
+                gps_bg = "#1e293b" if is_dark else "#f0fdf4"
+                gps_border = "#334155" if is_dark else "#86efac"
+                gps_text = "#f8fafc" if is_dark else "#1e293b"
+                gps_subtext = "#94a3b8" if is_dark else "#64748b"
                 c_gps_comp = f"""
-                <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:6px 10px; margin-bottom:4px; font-family:sans-serif;">
+                <div style="background:{gps_bg}; border:1px solid {gps_border}; border-radius:6px; padding:6px 10px; margin-bottom:4px; font-family:sans-serif; color:{gps_text};">
                     <button type="button" onclick="getRunGPS_{form_key_prefix}_{idx}()" style="background:#059669; color:#fff; border:none; border-radius:5px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer;">
                         📱 Auto-Detect Phone GPS
                     </button>
-                    <div id="run-gps-status-{form_key_prefix}-{idx}" style="margin-top:4px; font-size:11px; color:#1e293b;">
-                        <span style="color:#64748b;">Tap to auto-capture high accuracy GPS.</span>
+                    <div id="run-gps-status-{form_key_prefix}-{idx}" style="margin-top:4px; font-size:11px; color:{gps_text};">
+                        <span style="color:{gps_subtext};">Tap to auto-capture high accuracy GPS.</span>
                     </div>
                 </div>
                 <script>
                 function getRunGPS_{form_key_prefix}_{idx}() {{
                     var s = document.getElementById('run-gps-status-{form_key_prefix}-{idx}');
-                    if (!navigator.geolocation) {{ s.innerHTML = '<span style="color:#b91c1c;">Geolocation not supported.</span>'; return; }}
-                    s.innerHTML = '<span style="color:#2563eb;">📡 Accessing phone GPS sensors...</span>';
+                    if (!navigator.geolocation) {{ s.innerHTML = '<span style="color:#ef4444;">Geolocation not supported.</span>'; return; }}
+                    s.innerHTML = '<span style="color:#38bdf8;">📡 Accessing phone GPS sensors...</span>';
                     navigator.geolocation.getCurrentPosition(
                         function(pos) {{
                             var coords = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
@@ -1056,9 +1216,9 @@ def render_dynamic_custom_survey(chosen_template, form_key_prefix="runner"):
                                     }}
                                 }}
                             }} catch(e) {{}}
-                            s.innerHTML = '✅ <b>Captured:</b> ' + coords + ' <span style="color:#15803d;">(Copied to clipboard)</span>';
+                            s.innerHTML = '✅ <b style="color:{gps_text};">Captured:</b> ' + coords + ' <span style="color:#10b981;">(Copied to clipboard)</span>';
                         }},
-                        function(err) {{ s.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + (err.message || 'GPS error') + '</span>'; }},
+                        function(err) {{ s.innerHTML = '<span style="color:#ef4444;">⚠️ ' + (err.message || 'GPS error') + '</span>'; }},
                         {{ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }}
                     );
                 }}
@@ -1342,54 +1502,60 @@ with nav_tab1:
                 locality = st.text_input("Which area or locality do you belong to? *", value=val_locality, placeholder="e.g. Ward 4, Azad Nagar")
             
                 # Direct Phone GPS Location Detection Widget
-                gps_detect_html = """
-                <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:8px 12px; margin-top:6px; margin-bottom:4px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+                gps_bg = "#1e293b" if is_dark else "#f0fdf4"
+                gps_border = "#334155" if is_dark else "#86efac"
+                gps_text = "#f8fafc" if is_dark else "#1e293b"
+                gps_subtext = "#94a3b8" if is_dark else "#64748b"
+                gps_badge_bg = "#0f172a" if is_dark else "#fff"
+                gps_badge_border = "#475569" if is_dark else "#cbd5e1"
+                gps_detect_html = f"""
+                <div style="background:{gps_bg}; border:1px solid {gps_border}; border-radius:8px; padding:8px 12px; margin-top:6px; margin-bottom:4px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; color:{gps_text};">
                     <button type="button" onclick="detectPhoneGPS()" style="background:#059669; color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
                         📱 Auto-Detect Phone Location (GPS)
                     </button>
-                    <div id="gps-status" style="margin-top:6px; font-size:12px; color:#1e293b; line-height:1.4;">
-                        <span style="color:#64748b;">Tap above to auto-detect high-accuracy GPS coordinates from your phone.</span>
+                    <div id="gps-status" style="margin-top:6px; font-size:12px; color:{gps_text}; line-height:1.4;">
+                        <span style="color:{gps_subtext};">Tap above to auto-detect high-accuracy GPS coordinates from your phone.</span>
                     </div>
                 </div>
                 <script>
-                function detectPhoneGPS() {
+                function detectPhoneGPS() {{
                     var statusEl = document.getElementById('gps-status');
-                    if (!navigator.geolocation) {
-                        statusEl.innerHTML = '<span style="color:#b91c1c;">❌ Geolocation not supported by your browser. Enter coordinates manually below.</span>';
+                    if (!navigator.geolocation) {{
+                        statusEl.innerHTML = '<span style="color:#ef4444;">❌ Geolocation not supported by your browser. Enter coordinates manually below.</span>';
                         return;
-                    }
-                    statusEl.innerHTML = '<span style="color:#2563eb;">📡 Accessing device GPS sensors... Please allow location access if prompted.</span>';
+                    }}
+                    statusEl.innerHTML = '<span style="color:#38bdf8;">📡 Accessing device GPS sensors... Please allow location access if prompted.</span>';
                     navigator.geolocation.getCurrentPosition(
-                        function(pos) {
+                        function(pos) {{
                             var lat = pos.coords.latitude.toFixed(6);
                             var lon = pos.coords.longitude.toFixed(6);
                             var acc = Math.round(pos.coords.accuracy);
                             var coords = lat + ", " + lon;
-                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                            if (navigator.clipboard && navigator.clipboard.writeText) {{
                                 navigator.clipboard.writeText(coords);
-                            }
-                            try {
+                            }}
+                            try {{
                                 var inputs = window.parent.document.querySelectorAll('input');
-                                for (var i = 0; i < inputs.length; i++) {
+                                for (var i = 0; i < inputs.length; i++) {{
                                     var aria = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
                                     var ph = (inputs[i].getAttribute('placeholder') || '').toLowerCase();
-                                    if (aria.includes('gps') || ph.includes('19.0760')) {
+                                    if (aria.includes('gps') || ph.includes('19.0760')) {{
                                         inputs[i].value = coords;
-                                        inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-                                        inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
-                                    }
-                                }
-                            } catch(e) {}
-                            statusEl.innerHTML = '✅ <b>Captured:</b> <span style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">' + coords + '</span> <span style="color:#059669; font-weight:600;">(±' + acc + 'm accuracy)</span><br><span style="color:#15803d; font-size:11px;">📋 Auto-copied to clipboard! Auto-filled or paste into the GPS field below.</span>';
-                        },
-                        function(err) {
+                                        inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    }}
+                                }}
+                            }} catch(e) {{}}
+                            statusEl.innerHTML = '✅ <b style="color:{gps_text};">Captured:</b> <span style="background:{gps_badge_bg}; border:1px solid {gps_badge_border}; color:{gps_text}; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">' + coords + '</span> <span style="color:#10b981; font-weight:600;">(±' + acc + 'm accuracy)</span><br><span style="color:#10b981; font-size:11px;">📋 Auto-copied to clipboard! Auto-filled or paste into the GPS field below.</span>';
+                        }},
+                        function(err) {{
                             var msg = err.message || 'Unable to retrieve location';
                             if (err.code === 1) msg = 'Location permission denied by browser. Please enable location permission in browser settings.';
-                            statusEl.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + msg + '</span>';
-                        },
-                        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                            statusEl.innerHTML = '<span style="color:#ef4444;">⚠️ ' + msg + '</span>';
+                        }},
+                        {{ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }}
                     );
-                }
+                }}
                 </script>
                 """
                 components.html(gps_detect_html, height=105)
