@@ -24,6 +24,172 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
+# --- Theme Mode State (Light / Dark) ---
+if "theme_mode" not in st.session_state:
+    st.session_state.theme_mode = "☀️ Light"
+
+is_dark = st.session_state.theme_mode == "🌙 Dark"
+plotly_template = "plotly_dark" if is_dark else "plotly_white"
+
+if is_dark:
+    st.markdown("""
+    <style>
+        /* Global Dark Mode Overrides */
+        html, body, [data-testid="stAppViewContainer"], .main, .block-container {
+            background-color: #0b1120 !important;
+            color: #f1f5f9 !important;
+        }
+
+        [data-testid="stSidebar"], section[data-testid="stSidebar"] {
+            background-color: #0f172a !important;
+            border-right: 1px solid #1e293b !important;
+        }
+
+        [data-testid="stSidebar"] * {
+            color: #e2e8f0 !important;
+        }
+
+        header[data-testid="stHeader"] {
+            background-color: rgba(15, 23, 42, 0.92) !important;
+            backdrop-filter: blur(10px) !important;
+        }
+
+        .main-title {
+            color: #f8fafc !important;
+        }
+
+        .sub-title {
+            color: #94a3b8 !important;
+        }
+
+        /* Form Inputs, Selectboxes, Textareas, NumberInputs */
+        input, textarea, select, 
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="input"] input {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        input::placeholder, textarea::placeholder {
+            color: #64748b !important;
+        }
+
+        /* Dropdown popover menus */
+        div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"], li[role="option"] {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+        }
+        li[role="option"]:hover, li[aria-selected="true"] {
+            background-color: #334155 !important;
+        }
+
+        /* Expanders & Accordions */
+        div[data-testid="stExpander"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+        details summary {
+            color: #f8fafc !important;
+        }
+        details summary svg {
+            fill: #94a3b8 !important;
+        }
+
+        /* Tabs Styling */
+        div[data-baseweb="tab-list"] {
+            border-bottom: 2px solid #334155 !important;
+        }
+        div[data-baseweb="tab"] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
+        }
+        div[aria-selected="true"] {
+            background-color: #0284c7 !important;
+            border-color: #38bdf8 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+
+        /* Metrics Cards */
+        .stMetric, div[data-testid="stMetric"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+        div[data-testid="stMetricValue"] {
+            color: #38bdf8 !important;
+        }
+        div[data-testid="stMetricLabel"] {
+            color: #94a3b8 !important;
+        }
+
+        /* Info, Success, Warning Alerts */
+        div[data-testid="stAlert"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            color: #e2e8f0 !important;
+        }
+
+        /* Dataframe */
+        div[data-testid="stDataFrame"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+        }
+
+        /* Buttons */
+        button[kind="secondary"], .stButton > button:not([kind="primary"]) {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border: 1px solid #475569 !important;
+        }
+        button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {
+            background-color: #334155 !important;
+            border-color: #64748b !important;
+        }
+
+        /* Form container */
+        div[data-testid="stForm"] {
+            background-color: #131d31 !important;
+            border: 1px solid #334155 !important;
+            border-radius: 10px !important;
+        }
+
+        /* Sliders */
+        div[data-baseweb="slider"] {
+            color: #f8fafc !important;
+        }
+
+        /* Custom Cards & Containers */
+        div[style*="background: #f8fafc"], div[style*="background:#f8fafc"], 
+        div[style*="background: #f0fdf4"], div[style*="background:#f0fdf4"],
+        div[style*="background:#eff6ff"], div[style*="background: #eff6ff"] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        div[style*="background: #f8fafc"] *, div[style*="background:#f0fdf4"] * {
+            color: #e2e8f0 !important;
+        }
+
+        /* Code snippets */
+        code {
+            background-color: #1e293b !important;
+            color: #38bdf8 !important;
+            border: 1px solid #334155 !important;
+        }
+
+        /* Dividers */
+        hr {
+            border-color: #334155 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Universal Responsive Design (Desktops, Laptops, Tablets & Phones)
 st.markdown("""
 <style>
@@ -518,6 +684,20 @@ if not st.session_state.authenticated:
     st.markdown("<div style='text-align: center; margin-top: 2rem;'>", unsafe_allow_html=True)
     st.markdown("## 🔐 Socio-Economic Survey Portal Login")
     st.caption("Secure Surveyor Authentication via Supabase")
+    
+    col_thm1, col_thm2, col_thm3 = st.columns([1, 1.4, 1])
+    with col_thm2:
+        auth_theme_choice = st.radio(
+            "Appearance Mode",
+            ["☀️ Light Mode", "🌙 Dark Mode"],
+            index=1 if is_dark else 0,
+            horizontal=True,
+            key="login_theme_toggle",
+            label_visibility="collapsed"
+        )
+        if ("Dark" in auth_theme_choice) != is_dark:
+            st.session_state.theme_mode = "🌙 Dark" if "Dark" in auth_theme_choice else "☀️ Light"
+            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     col_l1, col_l2, col_l3 = st.columns([1, 1.4, 1])
@@ -616,7 +796,21 @@ if not st.session_state.authenticated:
 # ==============================================================================
 
 # --- Sidebar: User Info, Logout & Global Source Trigger ---
-st.sidebar.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
+# Theme Mode Toggle
+col_sb_t1, col_sb_t2 = st.sidebar.columns([1.8, 1.2])
+with col_sb_t1:
+    st.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
+with col_sb_t2:
+    thm_choice = st.selectbox(
+        "Theme",
+        ["☀️ Light", "🌙 Dark"],
+        index=1 if is_dark else 0,
+        key="sb_theme_toggle",
+        label_visibility="collapsed"
+    )
+    if ("Dark" in thm_choice) != is_dark:
+        st.session_state.theme_mode = "🌙 Dark" if "Dark" in thm_choice else "☀️ Light"
+        st.rerun()
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.user_email = ""
@@ -1643,7 +1837,7 @@ with nav_tab2:
             st.markdown("### 📋 Submissions by Questionnaire")
             q_counts = df_filtered["survey_name"].value_counts().reset_index()
             q_counts.columns = ["Questionnaire", "Responses"]
-            fig_q_dist = px.bar(q_counts, x="Questionnaire", y="Responses", color="Responses", color_continuous_scale="Blues", text="Responses")
+            fig_q_dist = px.bar(q_counts, x="Questionnaire", y="Responses", color="Responses", color_continuous_scale="Blues", text="Responses", template=plotly_template)
             st.plotly_chart(fig_q_dist, use_container_width=True)
 
             # Check if socio-economic baseline responses exist to show community indicators
@@ -1665,13 +1859,13 @@ with nav_tab2:
                 with ca1:
                     inc_counts = df_socio['monthly_income'].value_counts().reset_index()
                     inc_counts.columns = ['Income Bracket', 'Households']
-                    fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', title="Monthly Household Income")
+                    fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', title="Monthly Household Income", template=plotly_template)
                     fig_inc.update_layout(xaxis_tickangle=-30)
                     st.plotly_chart(fig_inc, use_container_width=True)
                 with ca2:
                     house_counts = df_socio['house_type'].value_counts().reset_index()
                     house_counts.columns = ['House Type', 'Count']
-                    fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, title="House Structural Types")
+                    fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, title="House Structural Types", template=plotly_template)
                     st.plotly_chart(fig_house, use_container_width=True)
 
         # CASE 2: Specific Custom Survey Selected
@@ -1711,7 +1905,7 @@ with nav_tab2:
                                     flat_opts.append(str(v).strip())
                             cnt_df = pd.Series(flat_opts).value_counts().reset_index()
                             cnt_df.columns = ["Option Selected", "Count"]
-                            fig_mc = px.bar(cnt_df, x="Option Selected", y="Count", color="Count", color_continuous_scale="Teal", text="Count")
+                            fig_mc = px.bar(cnt_df, x="Option Selected", y="Count", color="Count", color_continuous_scale="Teal", text="Count", template=plotly_template)
                             st.plotly_chart(fig_mc, use_container_width=True)
                         elif is_numeric:
                             num_vals = [float(v) for v in q_vals]
@@ -1721,17 +1915,17 @@ with nav_tab2:
                             col_n3.metric("Max", f"{max(num_vals):.1f}")
                             num_df = pd.Series(num_vals).value_counts().reset_index()
                             num_df.columns = ["Value / Rating", "Responses"]
-                            fig_num = px.bar(num_df, x="Value / Rating", y="Responses", color="Responses", color_continuous_scale="Viridis", text="Responses")
+                            fig_num = px.bar(num_df, x="Value / Rating", y="Responses", color="Responses", color_continuous_scale="Viridis", text="Responses", template=plotly_template)
                             st.plotly_chart(fig_num, use_container_width=True)
                         elif len(set([str(v) for v in q_vals])) <= 12:
                             cat_df = pd.Series([str(v) for v in q_vals]).value_counts().reset_index()
                             cat_df.columns = ["Choice", "Count"]
                             col_c1, col_c2 = st.columns([1.5, 1])
                             with col_c1:
-                                fig_cat = px.bar(cat_df, x="Choice", y="Count", color="Count", color_continuous_scale="Blues", text="Count")
+                                fig_cat = px.bar(cat_df, x="Choice", y="Count", color="Count", color_continuous_scale="Blues", text="Count", template=plotly_template)
                                 st.plotly_chart(fig_cat, use_container_width=True)
                             with col_c2:
-                                fig_pie = px.pie(cat_df, names="Choice", values="Count", hole=0.35, color_discrete_sequence=px.colors.qualitative.Pastel)
+                                fig_pie = px.pie(cat_df, names="Choice", values="Count", hole=0.35, color_discrete_sequence=px.colors.qualitative.Pastel, template=plotly_template)
                                 st.plotly_chart(fig_pie, use_container_width=True)
                         else:
                             st.dataframe(pd.DataFrame({"Submitted Responses": [str(v) for v in q_vals]}), use_container_width=True)
@@ -1754,7 +1948,7 @@ with nav_tab2:
                 st.subheader("Monthly Household Income Distribution")
                 inc_counts = df_filtered['monthly_income'].value_counts().reset_index()
                 inc_counts.columns = ['Income Bracket', 'Households']
-                fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues')
+                fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', template=plotly_template)
                 fig_inc.update_layout(xaxis_tickangle=-30)
                 st.plotly_chart(fig_inc, use_container_width=True)
 
@@ -1762,7 +1956,7 @@ with nav_tab2:
                 st.subheader("House Structural Types")
                 house_counts = df_filtered['house_type'].value_counts().reset_index()
                 house_counts.columns = ['House Type', 'Count']
-                fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2)
+                fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, template=plotly_template)
                 st.plotly_chart(fig_house, use_container_width=True)
 
             ca3, ca4 = st.columns(2)
@@ -1771,7 +1965,7 @@ with nav_tab2:
                 occ_col = 'household_main_occupation' if 'household_main_occupation' in df_filtered.columns else 'primary_occupation'
                 occ_counts = df_filtered[occ_col].value_counts().reset_index()
                 occ_counts.columns = ['Occupation', 'Count']
-                fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal')
+                fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal', template=plotly_template)
                 st.plotly_chart(fig_occ, use_container_width=True)
 
             with ca4:
@@ -1789,7 +1983,7 @@ with nav_tab2:
                         val = pd.to_numeric(df_filtered[col_name], errors='coerce').mean()
                         avg_ratings.append({"Service": srv_label, "Avg Rating": round(val, 2)})
                 df_srv = pd.DataFrame(avg_ratings)
-                fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating')
+                fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating', template=plotly_template)
                 st.plotly_chart(fig_srv, use_container_width=True)
 
 # ==============================================================================
@@ -1863,6 +2057,12 @@ with nav_tab3:
         attr='Esri World Street Map',
         name='🏙️ Detailed Map (Esri Topo)',
         show=False
+    ).add_to(m)
+    folium.TileLayer(
+        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attr='&copy; CARTO',
+        name='🌙 Dark Mode Map (CartoDB Dark)',
+        show=is_dark
     ).add_to(m)
 
     # Phone GPS Live Tracking Control
