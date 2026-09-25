@@ -457,7 +457,10 @@ else:
         /* === INPUT FIELDS, TEXTAREAS, SELECTBOXES === */
         input, textarea, select, 
         div[data-baseweb="select"] > div,
+        div[data-baseweb="select"],
         div[data-baseweb="select"] *,
+        div[data-testid="stMultiSelect"] div,
+        div[data-testid="stSelectbox"] div,
         div[data-baseweb="input"] > div,
         div[data-baseweb="input"] input,
         div[data-baseweb="base-input"] input {
@@ -533,18 +536,57 @@ else:
             border-radius: 10px !important;
         }
 
-        /* === EXPANDERS === */
-        div[data-testid="stExpander"] {
-            background-color: #1e293b !important;
+        /* === EXPANDERS FIX (ELIMINATE WHITE BARS) === */
+        div[data-testid="stExpander"],
+        div.streamlit-expanderContent,
+        [data-testid="stExpander"] {
+            background-color: #0f172a !important;
             border: 1px solid #334155 !important;
             border-radius: 8px !important;
+            overflow: hidden !important;
         }
+        div[data-testid="stExpander"] details,
+        div[data-testid="stExpander"] summary,
         div[data-testid="stExpander"] details summary,
-        div[data-testid="stExpander"] details summary * {
+        div[data-testid="stExpander"] > details > summary,
+        .streamlit-expanderHeader,
+        [data-testid="stExpanderToggleIcon"] {
+            background-color: #1e293b !important;
             color: #f8fafc !important;
+            border-bottom: 1px solid #334155 !important;
         }
-        div[data-testid="stExpander"] details summary svg {
-            fill: #94a3b8 !important;
+        div[data-testid="stExpander"] summary:hover,
+        div[data-testid="stExpander"] details summary:hover,
+        div[data-testid="stExpander"] > details > summary:hover,
+        .streamlit-expanderHeader:hover {
+            background-color: #334155 !important;
+        }
+        div[data-testid="stExpander"] summary *,
+        div[data-testid="stExpander"] details summary *,
+        div[data-testid="stExpander"] summary span,
+        div[data-testid="stExpander"] summary p,
+        div[data-testid="stExpander"] details summary span,
+        div[data-testid="stExpander"] details summary p,
+        .streamlit-expanderHeader * {
+            color: #f8fafc !important;
+            font-weight: 600 !important;
+        }
+        div[data-testid="stExpander"] details summary svg,
+        div[data-testid="stExpander"] summary svg,
+        .streamlit-expanderHeader svg,
+        [data-testid="stExpanderToggleIcon"] svg {
+            fill: #38bdf8 !important;
+            stroke: #38bdf8 !important;
+            color: #38bdf8 !important;
+        }
+        div[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+            background-color: #0f172a !important;
+            border-top: 1px solid #334155 !important;
+            color: #e2e8f0 !important;
+            padding: 0.85rem !important;
+        }
+        div[data-testid="stExpander"] [data-testid="stExpanderDetails"] * {
+            color: #e2e8f0 !important;
         }
 
         /* === ALERTS & BANNERS === */
@@ -604,11 +646,13 @@ else:
             color: #93c5fd !important;
         }
 
-        /* === DATAFRAMES === */
-        div[data-testid="stDataFrame"] {
-            background-color: #1e293b !important;
+        /* === DATAFRAMES (DARK THEME GRID) === */
+        div[data-testid="stDataFrame"], div[data-testid="stTable"] {
+            background-color: #0f172a !important;
             border: 1px solid #334155 !important;
             border-radius: 8px !important;
+            overflow: hidden !important;
+            filter: invert(90%) hue-rotate(180deg) contrast(90%);
         }
 
         /* === CODE SNIPPETS & DIVIDERS === */
@@ -2369,7 +2413,16 @@ with nav_tab3:
     col_k1, col_k2, col_k3, col_k4 = st.columns(4)
     col_k1.metric("📍 GPS Pins in View", len(valid_coords))
     col_k2.metric("📋 Total Records Filtered", len(df_gis))
-    col_k3.metric("🎨 Active Symbology", color_by_mode.split()[1] if len(color_by_mode.split()) > 1 else "Default")
+    sym_display = "Default"
+    if "Income" in color_by_mode:
+        sym_display = "Income"
+    elif "Housing" in color_by_mode:
+        sym_display = "Housing"
+    elif "Water" in color_by_mode:
+        sym_display = "Water"
+    elif "Satisfaction" in color_by_mode:
+        sym_display = "Satisfaction"
+    col_k3.metric("🎨 Active Symbology", sym_display)
     if "monthly_income" in df_gis.columns and not df_gis.empty:
         low_inc = len(df_gis[df_gis["monthly_income"].astype(str).str.contains("Below|10,000", case=False, na=False)])
         col_k4.metric("⚠️ Low-Income (< ₹10k)", f"{low_inc} ({low_inc/len(df_gis)*100:.0f}%)" if len(df_gis) else "0")
