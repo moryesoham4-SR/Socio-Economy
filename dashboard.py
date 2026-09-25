@@ -704,599 +704,664 @@ def safe_multiselect(options_list, values, default=None):
     return default
 
 # ==============================================================================
+def render_dynamic_custom_survey(chosen_template, form_key_prefix="runner"):
+    """Dynamically renders questions, GPS, photo capture and handles submission for user-designed custom surveys."""
+    st.markdown(f"### 📋 {chosen_template['title']}")
+    if chosen_template.get("description"):
+        st.caption(chosen_template["description"])
+
+    q_list = chosen_template.get("questions", [])
+    st.info(f"ℹ️ Questionnaire contains **{len(q_list)}** questions. Fill out the responses below and submit.")
+
+    c_form_key = f"{form_key_prefix}_form_{chosen_template['id']}_{st.session_state.form_render_id}"
+    with st.form(c_form_key):
+        c_answers = {}
+        c_name = ""
+        c_loc = ""
+        c_gps = ""
+        c_uploaded_photos = []
+
+        for idx, q in enumerate(q_list):
+            q_id = q.get("id", f"q_{idx}")
+            q_title = q.get("title", f"Question {idx+1}")
+            q_type = q.get("type", "Short Text")
+            q_req = q.get("required", False)
+            label = f"{q_title} *" if q_req else q_title
+
+            if q_type == "Short Text":
+                ans_val = st.text_input(label, key=f"{c_form_key}_{q_id}", placeholder="Type response...")
+                c_answers[q_title] = ans_val
+                if any(k in q_title.lower() for k in ["name", "respondent"]):
+                    c_name = ans_val
+                elif any(k in q_title.lower() for k in ["locality", "area", "village", "ward", "address"]):
+                    c_loc = ans_val
+
+            elif q_type == "Paragraph / Long Text":
+                ans_val = st.text_area(label, key=f"{c_form_key}_{q_id}", placeholder="Type detailed response...")
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Number":
+                ans_val = st.number_input(label, key=f"{c_form_key}_{q_id}", step=1, value=0)
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Single Choice (Radio)":
+                opts = q.get("options", ["Option 1", "Option 2"])
+                ans_val = st.radio(label, opts, key=f"{c_form_key}_{q_id}", horizontal=True)
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Dropdown Select":
+                opts = q.get("options", ["Option 1", "Option 2"])
+                ans_val = st.selectbox(label, opts, key=f"{c_form_key}_{q_id}")
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Multiple Choice (Checkboxes)":
+                opts = q.get("options", ["Option 1", "Option 2"])
+                ans_val = st.multiselect(label, opts, key=f"{c_form_key}_{q_id}")
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Yes / No":
+                ans_val = st.radio(label, ["Yes", "No"], key=f"{c_form_key}_{q_id}", horizontal=True)
+                c_answers[q_title] = ans_val
+
+            elif q_type == "Rating (1 to 5)":
+                ans_val = st.select_slider(label, options=[1, 2, 3, 4, 5], value=3, key=f"{c_form_key}_{q_id}")
+                c_answers[q_title] = ans_val
+
+            elif q_type == "GPS Location (Phone + Manual)":
+                st.markdown(f"**{label}**")
+                c_gps_comp = f"""
+                <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:6px 10px; margin-bottom:4px; font-family:sans-serif;">
+                    <button type="button" onclick="getRunGPS_{form_key_prefix}_{idx}()" style="background:#059669; color:#fff; border:none; border-radius:5px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer;">
+                        📱 Auto-Detect Phone GPS
+                    </button>
+                    <div id="run-gps-status-{form_key_prefix}-{idx}" style="margin-top:4px; font-size:11px; color:#1e293b;">
+                        <span style="color:#64748b;">Tap to auto-capture high accuracy GPS.</span>
+                    </div>
+                </div>
+                <script>
+                function getRunGPS_{form_key_prefix}_{idx}() {{
+                    var s = document.getElementById('run-gps-status-{form_key_prefix}-{idx}');
+                    if (!navigator.geolocation) {{ s.innerHTML = '<span style="color:#b91c1c;">Geolocation not supported.</span>'; return; }}
+                    s.innerHTML = '<span style="color:#2563eb;">📡 Accessing phone GPS sensors...</span>';
+                    navigator.geolocation.getCurrentPosition(
+                        function(pos) {{
+                            var coords = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
+                            if (navigator.clipboard && navigator.clipboard.writeText) {{ navigator.clipboard.writeText(coords); }}
+                            try {{
+                                var inps = window.parent.document.querySelectorAll('input');
+                                for (var i = 0; i < inps.length; i++) {{
+                                    var lbl = (inps[i].getAttribute('aria-label') || '').toLowerCase();
+                                    if (lbl.includes('gps') || lbl.includes('coordinate')) {{
+                                        inps[i].value = coords;
+                                        inps[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        inps[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    }}
+                                }}
+                            }} catch(e) {{}}
+                            s.innerHTML = '✅ <b>Captured:</b> ' + coords + ' <span style="color:#15803d;">(Copied to clipboard)</span>';
+                        }},
+                        function(err) {{ s.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + (err.message || 'GPS error') + '</span>'; }},
+                        {{ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }}
+                    );
+                }}
+                </script>
+                """
+                components.html(c_gps_comp, height=75)
+                gps_input_val = st.text_input("GPS Coordinates (Latitude, Longitude)", placeholder="e.g. 19.0760, 72.8777", key=f"{c_form_key}_{q_id}_gps")
+                c_gps = gps_input_val
+                c_answers[q_title] = gps_input_val
+
+            elif q_type == "Photo Upload / Camera":
+                st.markdown(f"**{label}**")
+                c_cam = st.camera_input("📷 Take Photo", key=f"{c_form_key}_{q_id}_cam")
+                c_file = st.file_uploader("🖼️ Or Upload Photo", type=["jpg", "png", "jpeg", "webp"], key=f"{c_form_key}_{q_id}_file")
+                if c_cam:
+                    c_uploaded_photos.append(c_cam)
+                if c_file:
+                    c_uploaded_photos.append(c_file)
+
+            st.divider()
+
+        submit_c_survey = st.form_submit_button(f"🚀 Submit {chosen_template['title']} Response", type="primary", use_container_width=True)
+        if submit_c_survey:
+            missing_fields = []
+            for q in q_list:
+                if q.get("required"):
+                    t = q.get("title")
+                    a = c_answers.get(t)
+                    if not a or (isinstance(a, str) and not a.strip()) or (isinstance(a, list) and len(a) == 0):
+                        missing_fields.append(t)
+            
+            if missing_fields:
+                st.error(f"⚠️ Please complete required questions: {', '.join(missing_fields)}")
+            else:
+                with st.spinner("Submitting custom survey response to Supabase..."):
+                    saved_p_urls = []
+                    for p_i, photo_obj in enumerate(c_uploaded_photos):
+                        p_url = upload_photo_to_supabase(photo_obj.getvalue(), f"custom_{chosen_template['id']}_{int(time.time())}_{p_i}.jpg")
+                        if p_url:
+                            saved_p_urls.append(p_url)
+
+                    notes_str = f"[CUSTOM_SURVEY_ID: {chosen_template['id']}] [SURVEY_TITLE: {chosen_template['title']}] [SURVEYOR: {st.session_state.user_email.strip()}] "
+                    if c_gps.strip():
+                        notes_str += f"[GPS: {c_gps.strip()}] "
+                    notes_str += f"[CUSTOM_PAYLOAD: {json.dumps(c_answers)}] [SOURCE: Custom Form]"
+
+                    r_name = c_name.strip() if c_name.strip() else f"Respondent ({chosen_template['title']})"
+                    r_loc = c_loc.strip() if c_loc.strip() else "Locality Pending"
+
+                    sub_record = {
+                        "full_name": r_name,
+                        "email": "custom_survey@survey.local",
+                        "gender": "Prefer not to say",
+                        "age": 30,
+                        "locality": r_loc,
+                        "surveyor_notes": notes_str,
+                        "photo_urls": saved_p_urls
+                    }
+
+                    if insert_survey_record(sub_record):
+                        st.success(f"🎉 Response for '{chosen_template['title']}' recorded successfully in Supabase!")
+                        st.session_state.form_render_id += 1
+                        st.cache_data.clear()
+                        time.sleep(1.2)
+                        st.rerun()
+                    else:
+                        st.error("Failed to submit custom survey to Supabase.")
+
+# ==============================================================================
 # TAB 1: SURVEY ENTRY (ON-FIELD & GOOGLE FORM DATA CAPTURE)
 # ==============================================================================
 with nav_tab1:
-    # Trigger / Toggle for Entry Mode
-    entry_mode = st.radio(
-        "Select Entry Mode:",
-        ["📱 On-Field Door-to-Door Survey (with Camera Photos)", "📋 Enter / Import Google Form Data"],
-        horizontal=True
-    )
+
+    available_templates = fetch_survey_templates()
     
-    if entry_mode == "📋 Enter / Import Google Form Data":
-        st.info("📋 **Google Form Data Entry**: You can upload an exported Google Form responses CSV or manually submit responses collected from Google Forms.")
+    survey_catalog = {"🏡 Socio-Economic Household Survey (Baseline)": None}
+    for t in available_templates:
+        survey_catalog[f"📋 {t['title']} ({len(t.get('questions', []))} questions)"] = t
+
+    survey_options = list(survey_catalog.keys())
+
+    # Switcher banner on the first page
+    col_sel_s1, col_sel_s2 = st.columns([3, 1.2])
+    with col_sel_s1:
+        if len(survey_options) <= 3:
+            active_survey_name = st.radio(
+                "📋 Choose Survey Questionnaire to Fill:",
+                survey_options,
+                horizontal=True,
+                index=0,
+                key="t1_active_survey_radio",
+                help="Switch between the baseline Socio-Economic Survey and any custom surveys designed by you or your team."
+            )
+        else:
+            active_survey_name = st.selectbox(
+                "📋 Choose Survey Questionnaire to Fill:",
+                survey_options,
+                index=0,
+                key="t1_active_survey_select",
+                help="Switch between the baseline Socio-Economic Survey and any custom surveys designed by you or your team."
+            )
+    with col_sel_s2:
+        st.write("")
+        st.caption("✨ Need a different survey? Build it in **'🛠️ Survey Builder'**.")
+
+    st.markdown("---")
+
+    chosen_custom_tmpl = survey_catalog[active_survey_name]
+
+    if chosen_custom_tmpl is not None:
+        render_dynamic_custom_survey(chosen_custom_tmpl, form_key_prefix="t1_custom")
+    else:
+        # Trigger / Toggle for Entry Mode
+        entry_mode = st.radio(
+            "Select Entry Mode:",
+            ["📱 On-Field Door-to-Door Survey (with Camera Photos)", "📋 Enter / Import Google Form Data"],
+            horizontal=True
+        )
+    
+        if entry_mode == "📋 Enter / Import Google Form Data":
+            st.info("📋 **Google Form Data Entry**: You can upload an exported Google Form responses CSV or manually submit responses collected from Google Forms.")
         
-        uploaded_csv = st.file_uploader("📥 Upload Google Form Responses CSV File", type=["csv"])
-        if uploaded_csv is not None:
-            try:
-                csv_df = pd.read_csv(uploaded_csv)
-                st.write(f"Detected **{len(csv_df)}** rows in CSV:")
-                st.dataframe(csv_df.head(3), use_container_width=True)
+            uploaded_csv = st.file_uploader("📥 Upload Google Form Responses CSV File", type=["csv"])
+            if uploaded_csv is not None:
+                try:
+                    csv_df = pd.read_csv(uploaded_csv)
+                    st.write(f"Detected **{len(csv_df)}** rows in CSV:")
+                    st.dataframe(csv_df.head(3), use_container_width=True)
                 
-                if st.button(f"⬆️ Import & Sync {len(csv_df)} Google Form Responses to Supabase", type="primary"):
-                    with st.spinner("Syncing Google Form records to Supabase..."):
-                        success_count = 0
-                        for _, row in csv_df.iterrows():
-                            # Normalize fields from typical Google Form CSV columns
-                            name_val = str(row.get("Name", row.get("full_name", row.get("Name *", "Google Form Respondent"))))
-                            email_val = str(row.get("Email", row.get("email", "gform@survey.com")))
-                            locality_val = str(row.get("Which area or locality do you belong to?", row.get("locality", "Not Specified")))
+                    if st.button(f"⬆️ Import & Sync {len(csv_df)} Google Form Responses to Supabase", type="primary"):
+                        with st.spinner("Syncing Google Form records to Supabase..."):
+                            success_count = 0
+                            for _, row in csv_df.iterrows():
+                                # Normalize fields from typical Google Form CSV columns
+                                name_val = str(row.get("Name", row.get("full_name", row.get("Name *", "Google Form Respondent"))))
+                                email_val = str(row.get("Email", row.get("email", "gform@survey.com")))
+                                locality_val = str(row.get("Which area or locality do you belong to?", row.get("locality", "Not Specified")))
                             
-                            g_record = {
-                                "full_name": name_val,
-                                "email": email_val,
-                                "gender": str(row.get("Gender", "Prefer not to say")),
-                                "age": int(pd.to_numeric(row.get("Age", 30), errors="coerce") or 30),
-                                "locality": locality_val,
-                                "household_members": str(row.get("How many members are there in your household?", "3 to 4")),
-                                "highest_qualification": str(row.get("What is your highest educational qualification?", "Secondary")),
-                                "members_studying": str(row.get("How many members of your household are currently studying?", "1")),
-                                "distance_to_education": str(row.get("How far is the nearest educational institution?", "1 to 3 km")),
-                                "education_difficulties": ["No major difficulty"],
-                                "employment_status": str(row.get("What is your current employment status?", "Employed")),
-                                "primary_occupation": str(row.get("What is the household's main occupation?", row.get("What is your primary occupation?", "Private job"))),
-                                "earning_members": "1",
-                                "monthly_income": str(row.get("What is your approximate monthly household income?", "20,000 to 30,000 INR")),
-                                "house_type": str(row.get("What type of house do you live in?", "Concrete House / Brick House")),
-                                "available_rooms": "2",
-                                "has_electricity": "Yes",
-                                "drinking_water_source": "Tap water",
-                                "water_available_year_round": "Yes",
-                                "toilet_access": "Private toilet",
-                                "primary_cooking_fuel": "LPG",
-                                "waste_disposal": "Municipal or local collection",
-                                "has_internet": "Yes",
-                                "internet_devices": ["Smartphone"],
-                                "rating_education": 3,
-                                "rating_healthcare": 3,
-                                "rating_transportation": 3,
-                                "rating_banking": 3,
-                                "rating_markets": 3,
-                                "biggest_problems": ["Waste management"],
-                                "highest_priority_improvement": ["Roads and transport"],
-                                "photo_urls": [],
-                                "surveyor_notes": f"[SOURCE: Google Form] [SURVEYOR: {st.session_state.user_email.strip()}] Imported from CSV ({uploaded_csv.name})"
-                            }
+                                g_record = {
+                                    "full_name": name_val,
+                                    "email": email_val,
+                                    "gender": str(row.get("Gender", "Prefer not to say")),
+                                    "age": int(pd.to_numeric(row.get("Age", 30), errors="coerce") or 30),
+                                    "locality": locality_val,
+                                    "household_members": str(row.get("How many members are there in your household?", "3 to 4")),
+                                    "highest_qualification": str(row.get("What is your highest educational qualification?", "Secondary")),
+                                    "members_studying": str(row.get("How many members of your household are currently studying?", "1")),
+                                    "distance_to_education": str(row.get("How far is the nearest educational institution?", "1 to 3 km")),
+                                    "education_difficulties": ["No major difficulty"],
+                                    "employment_status": str(row.get("What is your current employment status?", "Employed")),
+                                    "primary_occupation": str(row.get("What is the household's main occupation?", row.get("What is your primary occupation?", "Private job"))),
+                                    "earning_members": "1",
+                                    "monthly_income": str(row.get("What is your approximate monthly household income?", "20,000 to 30,000 INR")),
+                                    "house_type": str(row.get("What type of house do you live in?", "Concrete House / Brick House")),
+                                    "available_rooms": "2",
+                                    "has_electricity": "Yes",
+                                    "drinking_water_source": "Tap water",
+                                    "water_available_year_round": "Yes",
+                                    "toilet_access": "Private toilet",
+                                    "primary_cooking_fuel": "LPG",
+                                    "waste_disposal": "Municipal or local collection",
+                                    "has_internet": "Yes",
+                                    "internet_devices": ["Smartphone"],
+                                    "rating_education": 3,
+                                    "rating_healthcare": 3,
+                                    "rating_transportation": 3,
+                                    "rating_banking": 3,
+                                    "rating_markets": 3,
+                                    "biggest_problems": ["Waste management"],
+                                    "highest_priority_improvement": ["Roads and transport"],
+                                    "photo_urls": [],
+                                    "surveyor_notes": f"[SOURCE: Google Form] [SURVEYOR: {st.session_state.user_email.strip()}] Imported from CSV ({uploaded_csv.name})"
+                                }
+                                try:
+                                    insert_survey_record(g_record)
+                                    success_count += 1
+                                except Exception:
+                                    pass
+                            st.success(f"✅ Successfully imported and uploaded {success_count} Google Form records to Supabase!")
+                            st.cache_data.clear()
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Error reading CSV: {e}")
+
+            st.markdown("---")
+            st.subheader("Or Manually Enter a Single Google Form Response")
+
+        # Survey Form (Common for On-Field or Single Google Form Entry)
+        form_source_tag = "[SOURCE: Google Form]" if "Google Form" in entry_mode else "[SOURCE: On-Field]"
+        curr_draft = st.session_state.get("draft_data", {})
+
+        # Active Draft Resumption Notice Banner
+        if st.session_state.active_draft_id:
+            draft_display = curr_draft.get("full_name", "Household Survey").replace("[DRAFT] ", "")
+            st.info(f"✏️ **Currently Resuming Draft**: `{draft_display}`. You can update any answers, click **'💾 Save & Fill Later'** to save progress, or click **'🚀 Submit Complete Survey & Next'** to finalize.")
+            if st.button("❌ Exit Draft & Start Fresh Survey", key="btn_exit_draft"):
+                st.session_state.active_draft_id = None
+                st.session_state.draft_data = {}
+                st.session_state.form_render_id += 1
+                st.rerun()
+
+        # Cloud Saved Drafts Selector & Manager
+        num_drafts = len(df_drafts)
+        with st.expander(f"📂 Saved Drafts / Fill Later ({num_drafts} saved in Cloud)", expanded=(num_drafts > 0 and not st.session_state.active_draft_id)):
+            if df_drafts.empty:
+                st.info("💡 You currently have no saved drafts. While filling the survey below, you can click **'💾 Save & Fill Later'** at the bottom anytime to pause and resume later from any phone, tablet, or laptop.")
+            else:
+                st.write("Select an unfinished survey from the cloud to continue filling it:")
+                draft_options = {}
+                for _, d_row in df_drafts.iterrows():
+                    d_id = str(d_row["id"])
+                    d_name = str(d_row.get("full_name", "")).replace("[DRAFT] ", "").strip() or "Unnamed Household"
+                    d_loc = str(d_row.get("locality", "Unknown Locality")).replace("Locality Pending", "Locality Pending")
+                    d_time = str(d_row.get("created_at", ""))[:16].replace("T", " ")
+                    label = f"📝 {d_name} — {d_loc} ({d_time})"
+                    draft_options[label] = d_id
+            
+                chosen_draft_label = st.selectbox("Select saved draft to resume:", list(draft_options.keys()), key="sel_draft_pick")
+                chosen_draft_id = draft_options[chosen_draft_label]
+            
+                cd_col1, cd_col2 = st.columns([1.6, 1])
+                with cd_col1:
+                    if st.button("📥 Load & Continue This Survey", type="primary", use_container_width=True, key="btn_load_saved_draft"):
+                        target_row = df_drafts[df_drafts["id"] == chosen_draft_id].iloc[0]
+                        notes_str = str(target_row.get("surveyor_notes", ""))
+                        parsed_payload = {}
+                        if "[DRAFT_RAW:" in notes_str:
                             try:
-                                insert_survey_record(g_record)
-                                success_count += 1
+                                raw_match = re.search(r'\[DRAFT_RAW:\s*({.*?})\s*\]', notes_str, re.DOTALL)
+                                if raw_match:
+                                    parsed_payload = json.loads(raw_match.group(1))
                             except Exception:
                                 pass
-                        st.success(f"✅ Successfully imported and uploaded {success_count} Google Form records to Supabase!")
-                        st.cache_data.clear()
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Error reading CSV: {e}")
-
-        st.markdown("---")
-        st.subheader("Or Manually Enter a Single Google Form Response")
-
-    # Survey Form (Common for On-Field or Single Google Form Entry)
-    form_source_tag = "[SOURCE: Google Form]" if "Google Form" in entry_mode else "[SOURCE: On-Field]"
-    curr_draft = st.session_state.get("draft_data", {})
-
-    # Active Draft Resumption Notice Banner
-    if st.session_state.active_draft_id:
-        draft_display = curr_draft.get("full_name", "Household Survey").replace("[DRAFT] ", "")
-        st.info(f"✏️ **Currently Resuming Draft**: `{draft_display}`. You can update any answers, click **'💾 Save & Fill Later'** to save progress, or click **'🚀 Submit Complete Survey & Next'** to finalize.")
-        if st.button("❌ Exit Draft & Start Fresh Survey", key="btn_exit_draft"):
-            st.session_state.active_draft_id = None
-            st.session_state.draft_data = {}
-            st.session_state.form_render_id += 1
-            st.rerun()
-
-    # Cloud Saved Drafts Selector & Manager
-    num_drafts = len(df_drafts)
-    with st.expander(f"📂 Saved Drafts / Fill Later ({num_drafts} saved in Cloud)", expanded=(num_drafts > 0 and not st.session_state.active_draft_id)):
-        if df_drafts.empty:
-            st.info("💡 You currently have no saved drafts. While filling the survey below, you can click **'💾 Save & Fill Later'** at the bottom anytime to pause and resume later from any phone, tablet, or laptop.")
-        else:
-            st.write("Select an unfinished survey from the cloud to continue filling it:")
-            draft_options = {}
-            for _, d_row in df_drafts.iterrows():
-                d_id = str(d_row["id"])
-                d_name = str(d_row.get("full_name", "")).replace("[DRAFT] ", "").strip() or "Unnamed Household"
-                d_loc = str(d_row.get("locality", "Unknown Locality")).replace("Locality Pending", "Locality Pending")
-                d_time = str(d_row.get("created_at", ""))[:16].replace("T", " ")
-                label = f"📝 {d_name} — {d_loc} ({d_time})"
-                draft_options[label] = d_id
-            
-            chosen_draft_label = st.selectbox("Select saved draft to resume:", list(draft_options.keys()), key="sel_draft_pick")
-            chosen_draft_id = draft_options[chosen_draft_label]
-            
-            cd_col1, cd_col2 = st.columns([1.6, 1])
-            with cd_col1:
-                if st.button("📥 Load & Continue This Survey", type="primary", use_container_width=True, key="btn_load_saved_draft"):
-                    target_row = df_drafts[df_drafts["id"] == chosen_draft_id].iloc[0]
-                    notes_str = str(target_row.get("surveyor_notes", ""))
-                    parsed_payload = {}
-                    if "[DRAFT_RAW:" in notes_str:
-                        try:
-                            raw_match = re.search(r'\[DRAFT_RAW:\s*({.*?})\s*\]', notes_str, re.DOTALL)
-                            if raw_match:
-                                parsed_payload = json.loads(raw_match.group(1))
-                        except Exception:
-                            pass
-                    if not parsed_payload:
-                        parsed_payload = target_row.to_dict()
+                        if not parsed_payload:
+                            parsed_payload = target_row.to_dict()
                     
-                    st.session_state.active_draft_id = chosen_draft_id
-                    st.session_state.draft_data = parsed_payload
-                    st.session_state.form_render_id += 1
-                    st.success(f"Loaded draft! Scroll down to continue.")
-                    st.rerun()
-            with cd_col2:
-                if st.button("🗑️ Delete Draft", use_container_width=True, key="btn_delete_saved_draft"):
-                    if delete_survey_record(chosen_draft_id):
-                        if st.session_state.active_draft_id == chosen_draft_id:
-                            st.session_state.active_draft_id = None
-                            st.session_state.draft_data = {}
-                            st.session_state.form_render_id += 1
-                        st.success("Draft deleted from Supabase!")
-                        st.cache_data.clear()
+                        st.session_state.active_draft_id = chosen_draft_id
+                        st.session_state.draft_data = parsed_payload
+                        st.session_state.form_render_id += 1
+                        st.success(f"Loaded draft! Scroll down to continue.")
                         st.rerun()
+                with cd_col2:
+                    if st.button("🗑️ Delete Draft", use_container_width=True, key="btn_delete_saved_draft"):
+                        if delete_survey_record(chosen_draft_id):
+                            if st.session_state.active_draft_id == chosen_draft_id:
+                                st.session_state.active_draft_id = None
+                                st.session_state.draft_data = {}
+                                st.session_state.form_render_id += 1
+                            st.success("Draft deleted from Supabase!")
+                            st.cache_data.clear()
+                            st.rerun()
 
-    # Pre-calculated default values from loaded draft
-    val_name = str(curr_draft.get("full_name", "")).replace("[DRAFT] ", "").replace(" (Locality Pending)", "")
-    val_gender = str(curr_draft.get("gender", "Male"))
-    val_email = str(curr_draft.get("email", "")).replace("draft@survey.local", "")
-    val_age = int(curr_draft.get("age", 30)) if str(curr_draft.get("age", "")).isdigit() else 30
-    val_locality = str(curr_draft.get("locality", "")).replace("Locality Pending", "")
-    val_gps = str(curr_draft.get("gps_tag", ""))
-    val_hh_members = str(curr_draft.get("household_members", "3 to 4"))
-    val_qualification = str(curr_draft.get("highest_qualification", "Undergraduate"))
-    val_qual_other = str(curr_draft.get("highest_qualification_other", ""))
-    val_members_studying = str(curr_draft.get("members_studying", "1"))
-    val_distance_edu = str(curr_draft.get("distance_to_education", "1 to 3 km"))
-    val_edu_diff = curr_draft.get("education_difficulties", ["No major difficulty"])
-    val_edu_diff_other = str(curr_draft.get("education_difficulties_other", ""))
-    val_emp_status = str(curr_draft.get("employment_status", "Employed"))
-    val_emp_status_other = str(curr_draft.get("employment_status_other", ""))
-    val_occupation = str(curr_draft.get("primary_occupation", "Private job"))
-    val_occupation_other = str(curr_draft.get("primary_occupation_other", ""))
-    val_earning_members = str(curr_draft.get("earning_members", "1"))
-    val_income = str(curr_draft.get("monthly_income", "20,000 to 30,000 INR"))
-    val_house_type = str(curr_draft.get("house_type", "Concrete House / Brick House"))
-    val_house_type_other = str(curr_draft.get("house_type_other", ""))
-    val_rooms = str(curr_draft.get("available_rooms", "2"))
-    val_elec = str(curr_draft.get("has_electricity", "Yes"))
-    val_water = str(curr_draft.get("drinking_water_source", "Tap water"))
-    val_water_other = str(curr_draft.get("drinking_water_source_other", ""))
-    val_water_year = str(curr_draft.get("water_available_year_round", "Yes"))
-    val_toilet = str(curr_draft.get("toilet_access", "Private toilet"))
-    val_fuel = str(curr_draft.get("primary_cooking_fuel", "LPG"))
-    val_fuel_other = str(curr_draft.get("primary_cooking_fuel_other", ""))
-    val_waste = str(curr_draft.get("waste_disposal", "Municipal or local collection"))
-    val_waste_other = str(curr_draft.get("waste_disposal_other", ""))
-    val_internet = str(curr_draft.get("has_internet", "Yes"))
-    val_devices = curr_draft.get("internet_devices", ["Smartphone"])
-    val_devices_other = str(curr_draft.get("internet_devices_other", ""))
-    val_r_edu = int(curr_draft.get("rating_education", 3))
-    val_r_health = int(curr_draft.get("rating_healthcare", 3))
-    val_r_trans = int(curr_draft.get("rating_transportation", 3))
-    val_r_bank = int(curr_draft.get("rating_banking", 3))
-    val_r_market = int(curr_draft.get("rating_markets", 3))
-    val_problems = curr_draft.get("biggest_problems", ["Waste management"])
-    val_problems_other = str(curr_draft.get("biggest_problems_other", ""))
-    val_priority = curr_draft.get("highest_priority_improvement", ["Roads and transport"])
-    val_priority_other = str(curr_draft.get("highest_priority_improvement_other", ""))
-    val_notes = str(curr_draft.get("raw_notes", curr_draft.get("surveyor_notes", "")))
-    saved_photos = curr_draft.get("photo_urls", [])
+        # Pre-calculated default values from loaded draft
+        val_name = str(curr_draft.get("full_name", "")).replace("[DRAFT] ", "").replace(" (Locality Pending)", "")
+        val_gender = str(curr_draft.get("gender", "Male"))
+        val_email = str(curr_draft.get("email", "")).replace("draft@survey.local", "")
+        val_age = int(curr_draft.get("age", 30)) if str(curr_draft.get("age", "")).isdigit() else 30
+        val_locality = str(curr_draft.get("locality", "")).replace("Locality Pending", "")
+        val_gps = str(curr_draft.get("gps_tag", ""))
+        val_hh_members = str(curr_draft.get("household_members", "3 to 4"))
+        val_qualification = str(curr_draft.get("highest_qualification", "Undergraduate"))
+        val_qual_other = str(curr_draft.get("highest_qualification_other", ""))
+        val_members_studying = str(curr_draft.get("members_studying", "1"))
+        val_distance_edu = str(curr_draft.get("distance_to_education", "1 to 3 km"))
+        val_edu_diff = curr_draft.get("education_difficulties", ["No major difficulty"])
+        val_edu_diff_other = str(curr_draft.get("education_difficulties_other", ""))
+        val_emp_status = str(curr_draft.get("employment_status", "Employed"))
+        val_emp_status_other = str(curr_draft.get("employment_status_other", ""))
+        val_occupation = str(curr_draft.get("primary_occupation", "Private job"))
+        val_occupation_other = str(curr_draft.get("primary_occupation_other", ""))
+        val_earning_members = str(curr_draft.get("earning_members", "1"))
+        val_income = str(curr_draft.get("monthly_income", "20,000 to 30,000 INR"))
+        val_house_type = str(curr_draft.get("house_type", "Concrete House / Brick House"))
+        val_house_type_other = str(curr_draft.get("house_type_other", ""))
+        val_rooms = str(curr_draft.get("available_rooms", "2"))
+        val_elec = str(curr_draft.get("has_electricity", "Yes"))
+        val_water = str(curr_draft.get("drinking_water_source", "Tap water"))
+        val_water_other = str(curr_draft.get("drinking_water_source_other", ""))
+        val_water_year = str(curr_draft.get("water_available_year_round", "Yes"))
+        val_toilet = str(curr_draft.get("toilet_access", "Private toilet"))
+        val_fuel = str(curr_draft.get("primary_cooking_fuel", "LPG"))
+        val_fuel_other = str(curr_draft.get("primary_cooking_fuel_other", ""))
+        val_waste = str(curr_draft.get("waste_disposal", "Municipal or local collection"))
+        val_waste_other = str(curr_draft.get("waste_disposal_other", ""))
+        val_internet = str(curr_draft.get("has_internet", "Yes"))
+        val_devices = curr_draft.get("internet_devices", ["Smartphone"])
+        val_devices_other = str(curr_draft.get("internet_devices_other", ""))
+        val_r_edu = int(curr_draft.get("rating_education", 3))
+        val_r_health = int(curr_draft.get("rating_healthcare", 3))
+        val_r_trans = int(curr_draft.get("rating_transportation", 3))
+        val_r_bank = int(curr_draft.get("rating_banking", 3))
+        val_r_market = int(curr_draft.get("rating_markets", 3))
+        val_problems = curr_draft.get("biggest_problems", ["Waste management"])
+        val_problems_other = str(curr_draft.get("biggest_problems_other", ""))
+        val_priority = curr_draft.get("highest_priority_improvement", ["Roads and transport"])
+        val_priority_other = str(curr_draft.get("highest_priority_improvement_other", ""))
+        val_notes = str(curr_draft.get("raw_notes", curr_draft.get("surveyor_notes", "")))
+        saved_photos = curr_draft.get("photo_urls", [])
 
-    with st.form(f"survey_form_{st.session_state.household_count}_{st.session_state.form_render_id}", clear_on_submit=False):
-        status_tag = f"Draft Household #{st.session_state.household_count}" if not st.session_state.active_draft_id else "Resuming Saved Survey"
-        st.caption(f"Entry Mode: **{entry_mode}** | {status_tag}")
+        with st.form(f"survey_form_{st.session_state.household_count}_{st.session_state.form_render_id}", clear_on_submit=False):
+            status_tag = f"Draft Household #{st.session_state.household_count}" if not st.session_state.active_draft_id else "Resuming Saved Survey"
+            st.caption(f"Entry Mode: **{entry_mode}** | {status_tag}")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            full_name = st.text_input("Full Name *", value=val_name, placeholder="e.g. Ramesh Kumar")
-            g_opts = ["Male", "Female", "Prefer not to say"]
-            gender = st.radio("Gender *", g_opts, index=safe_index(g_opts, val_gender), horizontal=True)
-        with col2:
-            email = st.text_input("Email Address", value=val_email, placeholder="e.g. ramesh@example.com (optional for draft)")
-            age = st.number_input("Age (Years) *", min_value=1, max_value=120, value=val_age)
+            col1, col2 = st.columns(2)
+            with col1:
+                full_name = st.text_input("Full Name *", value=val_name, placeholder="e.g. Ramesh Kumar")
+                g_opts = ["Male", "Female", "Prefer not to say"]
+                gender = st.radio("Gender *", g_opts, index=safe_index(g_opts, val_gender), horizontal=True)
+            with col2:
+                email = st.text_input("Email Address", value=val_email, placeholder="e.g. ramesh@example.com (optional for draft)")
+                age = st.number_input("Age (Years) *", min_value=1, max_value=120, value=val_age)
             
-        st.divider()
-        col3, col4 = st.columns(2)
-        with col3:
-            locality = st.text_input("Which area or locality do you belong to? *", value=val_locality, placeholder="e.g. Ward 4, Azad Nagar")
-            
-            # Direct Phone GPS Location Detection Widget
-            gps_detect_html = """
-            <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:8px 12px; margin-top:6px; margin-bottom:4px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
-                <button type="button" onclick="detectPhoneGPS()" style="background:#059669; color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
-                    📱 Auto-Detect Phone Location (GPS)
-                </button>
-                <div id="gps-status" style="margin-top:6px; font-size:12px; color:#1e293b; line-height:1.4;">
-                    <span style="color:#64748b;">Tap above to auto-detect high-accuracy GPS coordinates from your phone.</span>
-                </div>
-            </div>
-            <script>
-            function detectPhoneGPS() {
-                var statusEl = document.getElementById('gps-status');
-                if (!navigator.geolocation) {
-                    statusEl.innerHTML = '<span style="color:#b91c1c;">❌ Geolocation not supported by your browser. Enter coordinates manually below.</span>';
-                    return;
-                }
-                statusEl.innerHTML = '<span style="color:#2563eb;">📡 Accessing device GPS sensors... Please allow location access if prompted.</span>';
-                navigator.geolocation.getCurrentPosition(
-                    function(pos) {
-                        var lat = pos.coords.latitude.toFixed(6);
-                        var lon = pos.coords.longitude.toFixed(6);
-                        var acc = Math.round(pos.coords.accuracy);
-                        var coords = lat + ", " + lon;
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(coords);
-                        }
-                        try {
-                            var inputs = window.parent.document.querySelectorAll('input');
-                            for (var i = 0; i < inputs.length; i++) {
-                                var aria = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
-                                var ph = (inputs[i].getAttribute('placeholder') || '').toLowerCase();
-                                if (aria.includes('gps') || ph.includes('19.0760')) {
-                                    inputs[i].value = coords;
-                                    inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-                                    inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
-                                }
-                            }
-                        } catch(e) {}
-                        statusEl.innerHTML = '✅ <b>Captured:</b> <span style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">' + coords + '</span> <span style="color:#059669; font-weight:600;">(±' + acc + 'm accuracy)</span><br><span style="color:#15803d; font-size:11px;">📋 Auto-copied to clipboard! Auto-filled or paste into the GPS field below.</span>';
-                    },
-                    function(err) {
-                        var msg = err.message || 'Unable to retrieve location';
-                        if (err.code === 1) msg = 'Location permission denied by browser. Please enable location permission in browser settings.';
-                        statusEl.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + msg + '</span>';
-                    },
-                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-                );
-            }
-            </script>
-            """
-            components.html(gps_detect_html, height=105)
-            gps_tag = st.text_input("GPS Coordinates (Latitude, Longitude)", value=val_gps, placeholder="e.g. 19.0760, 72.8777", help="Format: Latitude, Longitude. Auto-detect using phone GPS above or type/paste manually.")
-        with col4:
-            hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
-            household_members = st.radio("How many members are there in your household? *", 
-                                         hh_opts, index=safe_index(hh_opts, val_hh_members, 1), horizontal=True)
-
-        st.divider()
-        q_opts = ["Undergraduate", "Higher Secondary", "Secondary", "Primary", "Diploma", "Postgraduate", "No formal education", "Other"]
-        highest_qualification = st.selectbox(
-            "What is your highest educational qualification? *",
-            q_opts, index=safe_index(q_opts, val_qualification)
-        )
-        highest_qualification_other = ""
-        if highest_qualification == "Other":
-            highest_qualification_other = st.text_input("Specify other qualification:", value=val_qual_other)
-
-        col5, col6 = st.columns(2)
-        with col5:
-            stud_opts = ["0", "1", "2", "3", "4+"]
-            members_studying = st.radio("How many members are currently studying? *", stud_opts, index=safe_index(stud_opts, val_members_studying, 1), horizontal=True)
-        with col6:
-            dist_opts = ["Less than 1 km", "1 to 3 km", "3 to 5 km", "More than 5 km"]
-            distance_to_education = st.radio("Distance to nearest educational institution? *", 
-                                            dist_opts, index=safe_index(dist_opts, val_distance_edu, 1), horizontal=True)
-
-        diff_opts = ["Financial problems", "Distance", "Transportation", "Lack of facilities", "Family responsibilities", "No major difficulty", "Other"]
-        education_difficulties = st.multiselect(
-            "What is the biggest difficulty in accessing education? (Multi-select) *",
-            diff_opts,
-            default=safe_multiselect(diff_opts, val_edu_diff, ["No major difficulty"])
-        )
-        education_difficulties_other = ""
-        if "Other" in education_difficulties:
-            education_difficulties_other = st.text_input("Specify other education difficulty:", value=val_edu_diff_other)
-
-        st.divider()
-        col7, col8 = st.columns(2)
-        with col7:
-            emp_opts = ["Employed", "Self-employed", "Student", "Homemaker", "Unemployed", "Retired", "Other"]
-            employment_status = st.selectbox("What is your current employment status? *", 
-                                            emp_opts, index=safe_index(emp_opts, val_emp_status))
-            employment_status_other = ""
-            if employment_status == "Other":
-                employment_status_other = st.text_input("Specify other employment status:", value=val_emp_status_other)
-                
-            occ_opts = ["Private job", "Business", "Government job", "Agriculture", "Daily wage", "Professional", "Other"]
-            primary_occupation = st.selectbox("What is the household's main occupation? *", 
-                                             occ_opts, index=safe_index(occ_opts, val_occupation))
-            primary_occupation_other = ""
-            if primary_occupation == "Other":
-                primary_occupation_other = st.text_input("Specify other occupation:", value=val_occupation_other)
-
-        with col8:
-            earn_opts = ["0", "1", "2", "3", "4+"]
-            earning_members = st.radio("How many earning members are in household? *", earn_opts, index=safe_index(earn_opts, val_earning_members, 1), horizontal=True)
-            inc_opts = ["Below 10,000 INR", "10,000 to 20,000 INR", "20,000 to 30,000 INR", "30,000 to 50,000 INR", "50,000 to 75,000 INR", "Above 75,000 INR", "Prefer not to say"]
-            monthly_income = st.selectbox(
-                "What is your approximate monthly household income? *",
-                inc_opts,
-                index=safe_index(inc_opts, val_income, 2)
-            )
-
-        st.divider()
-        col9, col10 = st.columns(2)
-        with col9:
-            house_opts = ["Concrete House / Brick House", "Apartment or Flat", "Tiled Roof House / Sheet Roof House", "Mud House / Thatched House", "Other"]
-            house_type = st.selectbox("What type of house do you live in? *",
-                                     house_opts, index=safe_index(house_opts, val_house_type))
-            house_type_other = ""
-            if house_type == "Other":
-                house_type_other = st.text_input("Specify other house type:", value=val_house_type_other)
-
-            room_opts = ["1", "2", "3", "4", "5+"]
-            available_rooms = st.radio("How many rooms are available? *", room_opts, index=safe_index(room_opts, val_rooms, 1), horizontal=True)
-            elec_opts = ["Yes", "No"]
-            has_electricity = st.radio("Does household have electricity? *", elec_opts, index=safe_index(elec_opts, val_elec), horizontal=True)
-            toilet_opts = ["Private toilet", "Shared toilet", "No toilet"]
-            toilet_access = st.radio("Access to toilet? *", toilet_opts, index=safe_index(toilet_opts, val_toilet), horizontal=True)
-
-        with col10:
-            water_opts = ["Tap water", "Borewell", "Well", "Tanker", "River or stream", "Other"]
-            drinking_water_source = st.selectbox("Primary source of drinking water? *",
-                                                water_opts, index=safe_index(water_opts, val_water))
-            drinking_water_source_other = ""
-            if drinking_water_source == "Other":
-                drinking_water_source_other = st.text_input("Specify other water source:", value=val_water_other)
-
-            water_yr_opts = ["Yes", "No", "Sometimes"]
-            water_available_year_round = st.radio("Is water available throughout the year? *", water_yr_opts, index=safe_index(water_yr_opts, val_water_year), horizontal=True)
-            fuel_opts = ["LPG", "Electricity", "Firewood", "Kerosene", "Other"]
-            primary_cooking_fuel = st.selectbox("Primary cooking fuel? *", fuel_opts, index=safe_index(fuel_opts, val_fuel))
-            primary_cooking_fuel_other = ""
-            if primary_cooking_fuel == "Other":
-                primary_cooking_fuel_other = st.text_input("Specify other cooking fuel:", value=val_fuel_other)
-
-            waste_opts = ["Municipal or local collection", "Community collection point", "Open dumping", "Burning", "Other"]
-            waste_disposal = st.selectbox("Household waste disposal? *",
-                                         waste_opts, index=safe_index(waste_opts, val_waste))
-            waste_disposal_other = ""
-            if waste_disposal == "Other":
-                waste_disposal_other = st.text_input("Specify other waste disposal method:", value=val_waste_other)
-
-        st.divider()
-        col11, col12 = st.columns(2)
-        with col11:
-            net_opts = ["Yes", "No"]
-            has_internet = st.radio("Does household have internet access? *", net_opts, index=safe_index(net_opts, val_internet), horizontal=True)
-        with col12:
-            dev_opts = ["Smartphone", "Laptop", "Desktop", "Tablet", "Other", "No internet"]
-            internet_devices = st.multiselect(
-                "Primary devices used to access internet? (Multi-select) *",
-                dev_opts,
-                default=safe_multiselect(dev_opts, val_devices, ["Smartphone"])
-            )
-            internet_devices_other = ""
-            if "Other" in internet_devices:
-                internet_devices_other = st.text_input("Specify other internet device:", value=val_devices_other)
-
-        st.divider()
-        st.write("Rate access to essential services in your area from **1 (Very Poor)** to **5 (Very Good)**:")
-        
-        r_c1, r_c2 = st.columns(2)
-        with r_c1:
-            r_edu = st.select_slider("Education Quality (1-5)", options=[1, 2, 3, 4, 5], value=val_r_edu)
-            r_health = st.select_slider("Healthcare Access (1-5)", options=[1, 2, 3, 4, 5], value=val_r_health)
-            r_trans = st.select_slider("Transportation (1-5)", options=[1, 2, 3, 4, 5], value=val_r_trans)
-        with r_c2:
-            r_bank = st.select_slider("Banking Facilities (1-5)", options=[1, 2, 3, 4, 5], value=val_r_bank)
-            r_market = st.select_slider("Local Markets (1-5)", options=[1, 2, 3, 4, 5], value=val_r_market)
-
-        prob_opts = ["Unemployment", "Low income", "Education", "Healthcare", "Drinking water", "Sanitation", "Transportation", "Housing", "Waste management", "Digital connectivity", "Other"]
-        biggest_problems = st.multiselect(
-            "What is the biggest socio-economic problem in your area? (Multi-select) *",
-            prob_opts,
-            default=safe_multiselect(prob_opts, val_problems, ["Waste management"])
-        )
-        biggest_problems_other = ""
-        if "Other" in biggest_problems:
-            biggest_problems_other = st.text_input("Specify other problem:", value=val_problems_other)
-
-        prio_opts = ["Education", "Employment", "Healthcare", "Roads and transport", "Drinking water", "Sanitation", "Housing", "Digital connectivity", "Waste management", "Other"]
-        highest_priority = st.multiselect(
-            "What improvement should be given highest priority? (Multi-select) *",
-            prio_opts,
-            default=safe_multiselect(prio_opts, val_priority, ["Roads and transport"])
-        )
-        highest_priority_other = ""
-        if "Other" in highest_priority:
-            highest_priority_other = st.text_input("Specify other priority:", value=val_priority_other)
-
-        # Photo Evidence (Only if On-Field)
-        if "On-Field" in entry_mode:
             st.divider()
-            if saved_photos:
-                st.caption(f"📸 **Photos Already Saved with this Survey ({len(saved_photos)})**:")
-                p_cols = st.columns(min(len(saved_photos), 4))
-                for i, p_url in enumerate(saved_photos):
-                    p_cols[i % min(len(saved_photos), 4)].image(p_url, width=110)
+            col3, col4 = st.columns(2)
+            with col3:
+                locality = st.text_input("Which area or locality do you belong to? *", value=val_locality, placeholder="e.g. Ward 4, Azad Nagar")
             
-            st.caption("Capture new photos using smartphone camera or upload gallery files to Supabase Storage (`survey-photos`).")
-            cam_photo = st.camera_input("📷 Take Photo with Smartphone Camera")
-            file_photos = st.file_uploader("🖼️ Or Upload Existing Photos from Device", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
-        else:
-            cam_photo = None
-            file_photos = None
+                # Direct Phone GPS Location Detection Widget
+                gps_detect_html = """
+                <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:8px 12px; margin-top:6px; margin-bottom:4px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+                    <button type="button" onclick="detectPhoneGPS()" style="background:#059669; color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                        📱 Auto-Detect Phone Location (GPS)
+                    </button>
+                    <div id="gps-status" style="margin-top:6px; font-size:12px; color:#1e293b; line-height:1.4;">
+                        <span style="color:#64748b;">Tap above to auto-detect high-accuracy GPS coordinates from your phone.</span>
+                    </div>
+                </div>
+                <script>
+                function detectPhoneGPS() {
+                    var statusEl = document.getElementById('gps-status');
+                    if (!navigator.geolocation) {
+                        statusEl.innerHTML = '<span style="color:#b91c1c;">❌ Geolocation not supported by your browser. Enter coordinates manually below.</span>';
+                        return;
+                    }
+                    statusEl.innerHTML = '<span style="color:#2563eb;">📡 Accessing device GPS sensors... Please allow location access if prompted.</span>';
+                    navigator.geolocation.getCurrentPosition(
+                        function(pos) {
+                            var lat = pos.coords.latitude.toFixed(6);
+                            var lon = pos.coords.longitude.toFixed(6);
+                            var acc = Math.round(pos.coords.accuracy);
+                            var coords = lat + ", " + lon;
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(coords);
+                            }
+                            try {
+                                var inputs = window.parent.document.querySelectorAll('input');
+                                for (var i = 0; i < inputs.length; i++) {
+                                    var aria = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
+                                    var ph = (inputs[i].getAttribute('placeholder') || '').toLowerCase();
+                                    if (aria.includes('gps') || ph.includes('19.0760')) {
+                                        inputs[i].value = coords;
+                                        inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
+                                        inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
+                                    }
+                                }
+                            } catch(e) {}
+                            statusEl.innerHTML = '✅ <b>Captured:</b> <span style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">' + coords + '</span> <span style="color:#059669; font-weight:600;">(±' + acc + 'm accuracy)</span><br><span style="color:#15803d; font-size:11px;">📋 Auto-copied to clipboard! Auto-filled or paste into the GPS field below.</span>';
+                        },
+                        function(err) {
+                            var msg = err.message || 'Unable to retrieve location';
+                            if (err.code === 1) msg = 'Location permission denied by browser. Please enable location permission in browser settings.';
+                            statusEl.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + msg + '</span>';
+                        },
+                        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                    );
+                }
+                </script>
+                """
+                components.html(gps_detect_html, height=105)
+                gps_tag = st.text_input("GPS Coordinates (Latitude, Longitude)", value=val_gps, placeholder="e.g. 19.0760, 72.8777", help="Format: Latitude, Longitude. Auto-detect using phone GPS above or type/paste manually.")
+            with col4:
+                hh_opts = ["1 to 2", "3 to 4", "5 to 6", "7 to 8", "More than 8"]
+                household_members = st.radio("How many members are there in your household? *", 
+                                             hh_opts, index=safe_index(hh_opts, val_hh_members, 1), horizontal=True)
 
-        surveyor_notes = st.text_area("Observations / Notes (Optional)", value=val_notes, placeholder="e.g. Additional remarks or notes...")
+            st.divider()
+            q_opts = ["Undergraduate", "Higher Secondary", "Secondary", "Primary", "Diploma", "Postgraduate", "No formal education", "Other"]
+            highest_qualification = st.selectbox(
+                "What is your highest educational qualification? *",
+                q_opts, index=safe_index(q_opts, val_qualification)
+            )
+            highest_qualification_other = ""
+            if highest_qualification == "Other":
+                highest_qualification_other = st.text_input("Specify other qualification:", value=val_qual_other)
 
-        st.markdown("---")
+            col5, col6 = st.columns(2)
+            with col5:
+                stud_opts = ["0", "1", "2", "3", "4+"]
+                members_studying = st.radio("How many members are currently studying? *", stud_opts, index=safe_index(stud_opts, val_members_studying, 1), horizontal=True)
+            with col6:
+                dist_opts = ["Less than 1 km", "1 to 3 km", "3 to 5 km", "More than 5 km"]
+                distance_to_education = st.radio("Distance to nearest educational institution? *", 
+                                                dist_opts, index=safe_index(dist_opts, val_distance_edu, 1), horizontal=True)
+
+            diff_opts = ["Financial problems", "Distance", "Transportation", "Lack of facilities", "Family responsibilities", "No major difficulty", "Other"]
+            education_difficulties = st.multiselect(
+                "What is the biggest difficulty in accessing education? (Multi-select) *",
+                diff_opts,
+                default=safe_multiselect(diff_opts, val_edu_diff, ["No major difficulty"])
+            )
+            education_difficulties_other = ""
+            if "Other" in education_difficulties:
+                education_difficulties_other = st.text_input("Specify other education difficulty:", value=val_edu_diff_other)
+
+            st.divider()
+            col7, col8 = st.columns(2)
+            with col7:
+                emp_opts = ["Employed", "Self-employed", "Student", "Homemaker", "Unemployed", "Retired", "Other"]
+                employment_status = st.selectbox("What is your current employment status? *", 
+                                                emp_opts, index=safe_index(emp_opts, val_emp_status))
+                employment_status_other = ""
+                if employment_status == "Other":
+                    employment_status_other = st.text_input("Specify other employment status:", value=val_emp_status_other)
+                
+                occ_opts = ["Private job", "Business", "Government job", "Agriculture", "Daily wage", "Professional", "Other"]
+                primary_occupation = st.selectbox("What is the household's main occupation? *", 
+                                                 occ_opts, index=safe_index(occ_opts, val_occupation))
+                primary_occupation_other = ""
+                if primary_occupation == "Other":
+                    primary_occupation_other = st.text_input("Specify other occupation:", value=val_occupation_other)
+
+            with col8:
+                earn_opts = ["0", "1", "2", "3", "4+"]
+                earning_members = st.radio("How many earning members are in household? *", earn_opts, index=safe_index(earn_opts, val_earning_members, 1), horizontal=True)
+                inc_opts = ["Below 10,000 INR", "10,000 to 20,000 INR", "20,000 to 30,000 INR", "30,000 to 50,000 INR", "50,000 to 75,000 INR", "Above 75,000 INR", "Prefer not to say"]
+                monthly_income = st.selectbox(
+                    "What is your approximate monthly household income? *",
+                    inc_opts,
+                    index=safe_index(inc_opts, val_income, 2)
+                )
+
+            st.divider()
+            col9, col10 = st.columns(2)
+            with col9:
+                house_opts = ["Concrete House / Brick House", "Apartment or Flat", "Tiled Roof House / Sheet Roof House", "Mud House / Thatched House", "Other"]
+                house_type = st.selectbox("What type of house do you live in? *",
+                                         house_opts, index=safe_index(house_opts, val_house_type))
+                house_type_other = ""
+                if house_type == "Other":
+                    house_type_other = st.text_input("Specify other house type:", value=val_house_type_other)
+
+                room_opts = ["1", "2", "3", "4", "5+"]
+                available_rooms = st.radio("How many rooms are available? *", room_opts, index=safe_index(room_opts, val_rooms, 1), horizontal=True)
+                elec_opts = ["Yes", "No"]
+                has_electricity = st.radio("Does household have electricity? *", elec_opts, index=safe_index(elec_opts, val_elec), horizontal=True)
+                toilet_opts = ["Private toilet", "Shared toilet", "No toilet"]
+                toilet_access = st.radio("Access to toilet? *", toilet_opts, index=safe_index(toilet_opts, val_toilet), horizontal=True)
+
+            with col10:
+                water_opts = ["Tap water", "Borewell", "Well", "Tanker", "River or stream", "Other"]
+                drinking_water_source = st.selectbox("Primary source of drinking water? *",
+                                                    water_opts, index=safe_index(water_opts, val_water))
+                drinking_water_source_other = ""
+                if drinking_water_source == "Other":
+                    drinking_water_source_other = st.text_input("Specify other water source:", value=val_water_other)
+
+                water_yr_opts = ["Yes", "No", "Sometimes"]
+                water_available_year_round = st.radio("Is water available throughout the year? *", water_yr_opts, index=safe_index(water_yr_opts, val_water_year), horizontal=True)
+                fuel_opts = ["LPG", "Electricity", "Firewood", "Kerosene", "Other"]
+                primary_cooking_fuel = st.selectbox("Primary cooking fuel? *", fuel_opts, index=safe_index(fuel_opts, val_fuel))
+                primary_cooking_fuel_other = ""
+                if primary_cooking_fuel == "Other":
+                    primary_cooking_fuel_other = st.text_input("Specify other cooking fuel:", value=val_fuel_other)
+
+                waste_opts = ["Municipal or local collection", "Community collection point", "Open dumping", "Burning", "Other"]
+                waste_disposal = st.selectbox("Household waste disposal? *",
+                                             waste_opts, index=safe_index(waste_opts, val_waste))
+                waste_disposal_other = ""
+                if waste_disposal == "Other":
+                    waste_disposal_other = st.text_input("Specify other waste disposal method:", value=val_waste_other)
+
+            st.divider()
+            col11, col12 = st.columns(2)
+            with col11:
+                net_opts = ["Yes", "No"]
+                has_internet = st.radio("Does household have internet access? *", net_opts, index=safe_index(net_opts, val_internet), horizontal=True)
+            with col12:
+                dev_opts = ["Smartphone", "Laptop", "Desktop", "Tablet", "Other", "No internet"]
+                internet_devices = st.multiselect(
+                    "Primary devices used to access internet? (Multi-select) *",
+                    dev_opts,
+                    default=safe_multiselect(dev_opts, val_devices, ["Smartphone"])
+                )
+                internet_devices_other = ""
+                if "Other" in internet_devices:
+                    internet_devices_other = st.text_input("Specify other internet device:", value=val_devices_other)
+
+            st.divider()
+            st.write("Rate access to essential services in your area from **1 (Very Poor)** to **5 (Very Good)**:")
         
-        # Dual Action Buttons: Save & Fill Later OR Submit Final
-        col_act1, col_act2 = st.columns([1, 1])
-        with col_act1:
-            save_draft_submitted = st.form_submit_button(
-                "💾 Save & Fill Later (Draft)", 
-                use_container_width=True,
-                help="Save your current answers as a cloud draft. You can safely close your device and finish this survey anytime."
+            r_c1, r_c2 = st.columns(2)
+            with r_c1:
+                r_edu = st.select_slider("Education Quality (1-5)", options=[1, 2, 3, 4, 5], value=val_r_edu)
+                r_health = st.select_slider("Healthcare Access (1-5)", options=[1, 2, 3, 4, 5], value=val_r_health)
+                r_trans = st.select_slider("Transportation (1-5)", options=[1, 2, 3, 4, 5], value=val_r_trans)
+            with r_c2:
+                r_bank = st.select_slider("Banking Facilities (1-5)", options=[1, 2, 3, 4, 5], value=val_r_bank)
+                r_market = st.select_slider("Local Markets (1-5)", options=[1, 2, 3, 4, 5], value=val_r_market)
+
+            prob_opts = ["Unemployment", "Low income", "Education", "Healthcare", "Drinking water", "Sanitation", "Transportation", "Housing", "Waste management", "Digital connectivity", "Other"]
+            biggest_problems = st.multiselect(
+                "What is the biggest socio-economic problem in your area? (Multi-select) *",
+                prob_opts,
+                default=safe_multiselect(prob_opts, val_problems, ["Waste management"])
             )
-        with col_act2:
-            final_submitted = st.form_submit_button(
-                "🚀 Submit Complete Survey & Next", 
-                type="primary", 
-                use_container_width=True,
-                help="Finalize and permanently submit this completed survey."
+            biggest_problems_other = ""
+            if "Other" in biggest_problems:
+                biggest_problems_other = st.text_input("Specify other problem:", value=val_problems_other)
+
+            prio_opts = ["Education", "Employment", "Healthcare", "Roads and transport", "Drinking water", "Sanitation", "Housing", "Digital connectivity", "Waste management", "Other"]
+            highest_priority = st.multiselect(
+                "What improvement should be given highest priority? (Multi-select) *",
+                prio_opts,
+                default=safe_multiselect(prio_opts, val_priority, ["Roads and transport"])
             )
+            highest_priority_other = ""
+            if "Other" in highest_priority:
+                highest_priority_other = st.text_input("Specify other priority:", value=val_priority_other)
 
-        # --- HANDLER 1: SAVE & FILL LATER (DRAFT) ---
-        if save_draft_submitted:
-            with st.spinner("Saving draft to Supabase Cloud..."):
-                new_photo_urls = []
-                if cam_photo is not None:
-                    c_url = upload_photo_to_supabase(cam_photo.getvalue(), f"draft_cam_{int(time.time())}.jpg")
-                    if c_url:
-                        new_photo_urls.append(c_url)
-                if file_photos:
-                    for f in file_photos:
-                        f_url = upload_photo_to_supabase(f.getvalue(), f.name)
-                        if f_url:
-                            new_photo_urls.append(f_url)
-
-                total_photos = saved_photos + new_photo_urls
-                draft_name = full_name.strip() if full_name.strip() else f"Household #{st.session_state.household_count}"
-                draft_loc = locality.strip() if locality.strip() else "Locality Pending"
-
-                draft_state_payload = {
-                    "full_name": draft_name,
-                    "gender": gender,
-                    "email": email.strip(),
-                    "age": int(age),
-                    "locality": draft_loc,
-                    "gps_tag": gps_tag.strip(),
-                    "household_members": household_members,
-                    "highest_qualification": highest_qualification,
-                    "highest_qualification_other": highest_qualification_other,
-                    "members_studying": members_studying,
-                    "distance_to_education": distance_to_education,
-                    "education_difficulties": education_difficulties,
-                    "education_difficulties_other": education_difficulties_other,
-                    "employment_status": employment_status,
-                    "employment_status_other": employment_status_other,
-                    "primary_occupation": primary_occupation,
-                    "primary_occupation_other": primary_occupation_other,
-                    "earning_members": earning_members,
-                    "monthly_income": monthly_income,
-                    "house_type": house_type,
-                    "house_type_other": house_type_other,
-                    "available_rooms": available_rooms,
-                    "has_electricity": has_electricity,
-                    "drinking_water_source": drinking_water_source,
-                    "drinking_water_source_other": drinking_water_source_other,
-                    "water_available_year_round": water_available_year_round,
-                    "toilet_access": toilet_access,
-                    "primary_cooking_fuel": primary_cooking_fuel,
-                    "primary_cooking_fuel_other": primary_cooking_fuel_other,
-                    "waste_disposal": waste_disposal,
-                    "waste_disposal_other": waste_disposal_other,
-                    "has_internet": has_internet,
-                    "internet_devices": internet_devices,
-                    "internet_devices_other": internet_devices_other,
-                    "rating_education": int(r_edu),
-                    "rating_healthcare": int(r_health),
-                    "rating_transportation": int(r_trans),
-                    "rating_banking": int(r_bank),
-                    "rating_markets": int(r_market),
-                    "biggest_problems": biggest_problems,
-                    "biggest_problems_other": biggest_problems_other,
-                    "highest_priority_improvement": highest_priority,
-                    "highest_priority_improvement_other": highest_priority_other,
-                    "raw_notes": surveyor_notes.strip() if surveyor_notes else "",
-                    "photo_urls": total_photos,
-                    "entry_mode": entry_mode
-                }
-
-                raw_json = json.dumps(draft_state_payload)
-                draft_notes_col = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] [STATUS: DRAFT] [DRAFT_RAW: {raw_json}]"
-                if surveyor_notes and surveyor_notes.strip():
-                    draft_notes_col += f" {surveyor_notes.strip()}"
-
-                draft_record = {
-                    "full_name": f"[DRAFT] {draft_name}",
-                    "email": email.strip() if email.strip() else "draft@survey.local",
-                    "gender": gender,
-                    "age": int(age),
-                    "locality": draft_loc,
-                    "household_members": household_members,
-                    "highest_qualification": highest_qualification,
-                    "highest_qualification_other": highest_qualification_other if highest_qualification_other else None,
-                    "members_studying": members_studying,
-                    "distance_to_education": distance_to_education,
-                    "education_difficulties": education_difficulties if education_difficulties else ["No major difficulty"],
-                    "education_difficulties_other": education_difficulties_other if education_difficulties_other else None,
-                    "employment_status": employment_status,
-                    "employment_status_other": employment_status_other if employment_status_other else None,
-                    "primary_occupation": primary_occupation,
-                    "primary_occupation_other": primary_occupation_other if primary_occupation_other else None,
-                    "earning_members": earning_members,
-                    "monthly_income": monthly_income,
-                    "house_type": house_type,
-                    "house_type_other": house_type_other if house_type_other else None,
-                    "available_rooms": available_rooms,
-                    "has_electricity": has_electricity,
-                    "drinking_water_source": drinking_water_source,
-                    "drinking_water_source_other": drinking_water_source_other if drinking_water_source_other else None,
-                    "water_available_year_round": water_available_year_round,
-                    "toilet_access": toilet_access,
-                    "primary_cooking_fuel": primary_cooking_fuel,
-                    "primary_cooking_fuel_other": primary_cooking_fuel_other if primary_cooking_fuel_other else None,
-                    "waste_disposal": waste_disposal,
-                    "waste_disposal_other": waste_disposal_other if waste_disposal_other else None,
-                    "has_internet": has_internet,
-                    "internet_devices": internet_devices if internet_devices else ["Smartphone"],
-                    "internet_devices_other": internet_devices_other if internet_devices_other else None,
-                    "rating_education": int(r_edu),
-                    "rating_healthcare": int(r_health),
-                    "rating_transportation": int(r_trans),
-                    "rating_banking": int(r_bank),
-                    "rating_markets": int(r_market),
-                    "biggest_problems": biggest_problems if biggest_problems else ["Waste management"],
-                    "biggest_problems_other": biggest_problems_other if biggest_problems_other else None,
-                    "highest_priority_improvement": highest_priority if highest_priority else ["Roads and transport"],
-                    "highest_priority_improvement_other": highest_priority_other if highest_priority_other else None,
-                    "photo_urls": total_photos,
-                    "surveyor_notes": draft_notes_col
-                }
-
-                try:
-                    if st.session_state.active_draft_id:
-                        update_survey_record(st.session_state.active_draft_id, draft_record)
-                        st.session_state.draft_data = draft_state_payload
-                        st.success(f"💾 Draft updated for '{draft_name}'! You can safely leave and resume anytime.")
-                    else:
-                        resp_ins = insert_survey_record(draft_record)
-                        if isinstance(resp_ins, list) and len(resp_ins) > 0 and "id" in resp_ins[0]:
-                            st.session_state.active_draft_id = resp_ins[0]["id"]
-                        st.session_state.draft_data = draft_state_payload
-                        st.success(f"💾 Draft saved for '{draft_name}'! You can resume filling it anytime from '📂 Saved Drafts' above.")
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error saving draft to Supabase: {e}")
-
-        # --- HANDLER 2: FINAL COMPLETE SUBMISSION ---
-        if final_submitted:
-            if not full_name.strip() or full_name.strip().startswith("[DRAFT]"):
-                st.error("⚠️ Please enter the respondent's full name.")
-            elif not locality.strip() or locality.strip() == "Locality Pending":
-                st.error("⚠️ Please enter the locality / area name.")
+            # Photo Evidence (Only if On-Field)
+            if "On-Field" in entry_mode:
+                st.divider()
+                if saved_photos:
+                    st.caption(f"📸 **Photos Already Saved with this Survey ({len(saved_photos)})**:")
+                    p_cols = st.columns(min(len(saved_photos), 4))
+                    for i, p_url in enumerate(saved_photos):
+                        p_cols[i % min(len(saved_photos), 4)].image(p_url, width=110)
+            
+                st.caption("Capture new photos using smartphone camera or upload gallery files to Supabase Storage (`survey-photos`).")
+                cam_photo = st.camera_input("📷 Take Photo with Smartphone Camera")
+                file_photos = st.file_uploader("🖼️ Or Upload Existing Photos from Device", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
             else:
-                with st.spinner("Submitting final survey to Supabase..."):
+                cam_photo = None
+                file_photos = None
+
+            surveyor_notes = st.text_area("Observations / Notes (Optional)", value=val_notes, placeholder="e.g. Additional remarks or notes...")
+
+            st.markdown("---")
+        
+            # Dual Action Buttons: Save & Fill Later OR Submit Final
+            col_act1, col_act2 = st.columns([1, 1])
+            with col_act1:
+                save_draft_submitted = st.form_submit_button(
+                    "💾 Save & Fill Later (Draft)", 
+                    use_container_width=True,
+                    help="Save your current answers as a cloud draft. You can safely close your device and finish this survey anytime."
+                )
+            with col_act2:
+                final_submitted = st.form_submit_button(
+                    "🚀 Submit Complete Survey & Next", 
+                    type="primary", 
+                    use_container_width=True,
+                    help="Finalize and permanently submit this completed survey."
+                )
+
+            # --- HANDLER 1: SAVE & FILL LATER (DRAFT) ---
+            if save_draft_submitted:
+                with st.spinner("Saving draft to Supabase Cloud..."):
                     new_photo_urls = []
                     if cam_photo is not None:
-                        c_url = upload_photo_to_supabase(cam_photo.getvalue(), f"cam_h{st.session_state.household_count}.jpg")
+                        c_url = upload_photo_to_supabase(cam_photo.getvalue(), f"draft_cam_{int(time.time())}.jpg")
                         if c_url:
                             new_photo_urls.append(c_url)
                     if file_photos:
@@ -1306,26 +1371,75 @@ with nav_tab1:
                                 new_photo_urls.append(f_url)
 
                     total_photos = saved_photos + new_photo_urls
+                    draft_name = full_name.strip() if full_name.strip() else f"Household #{st.session_state.household_count}"
+                    draft_loc = locality.strip() if locality.strip() else "Locality Pending"
 
-                    # Build clean surveyor notes with surveyor tag
-                    final_notes = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] "
-                    if gps_tag.strip():
-                        final_notes += f"[GPS: {gps_tag.strip()}] "
+                    draft_state_payload = {
+                        "full_name": draft_name,
+                        "gender": gender,
+                        "email": email.strip(),
+                        "age": int(age),
+                        "locality": draft_loc,
+                        "gps_tag": gps_tag.strip(),
+                        "household_members": household_members,
+                        "highest_qualification": highest_qualification,
+                        "highest_qualification_other": highest_qualification_other,
+                        "members_studying": members_studying,
+                        "distance_to_education": distance_to_education,
+                        "education_difficulties": education_difficulties,
+                        "education_difficulties_other": education_difficulties_other,
+                        "employment_status": employment_status,
+                        "employment_status_other": employment_status_other,
+                        "primary_occupation": primary_occupation,
+                        "primary_occupation_other": primary_occupation_other,
+                        "earning_members": earning_members,
+                        "monthly_income": monthly_income,
+                        "house_type": house_type,
+                        "house_type_other": house_type_other,
+                        "available_rooms": available_rooms,
+                        "has_electricity": has_electricity,
+                        "drinking_water_source": drinking_water_source,
+                        "drinking_water_source_other": drinking_water_source_other,
+                        "water_available_year_round": water_available_year_round,
+                        "toilet_access": toilet_access,
+                        "primary_cooking_fuel": primary_cooking_fuel,
+                        "primary_cooking_fuel_other": primary_cooking_fuel_other,
+                        "waste_disposal": waste_disposal,
+                        "waste_disposal_other": waste_disposal_other,
+                        "has_internet": has_internet,
+                        "internet_devices": internet_devices,
+                        "internet_devices_other": internet_devices_other,
+                        "rating_education": int(r_edu),
+                        "rating_healthcare": int(r_health),
+                        "rating_transportation": int(r_trans),
+                        "rating_banking": int(r_bank),
+                        "rating_markets": int(r_market),
+                        "biggest_problems": biggest_problems,
+                        "biggest_problems_other": biggest_problems_other,
+                        "highest_priority_improvement": highest_priority,
+                        "highest_priority_improvement_other": highest_priority_other,
+                        "raw_notes": surveyor_notes.strip() if surveyor_notes else "",
+                        "photo_urls": total_photos,
+                        "entry_mode": entry_mode
+                    }
+
+                    raw_json = json.dumps(draft_state_payload)
+                    draft_notes_col = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] [STATUS: DRAFT] [DRAFT_RAW: {raw_json}]"
                     if surveyor_notes and surveyor_notes.strip():
-                        final_notes += surveyor_notes.strip()
+                        draft_notes_col += f" {surveyor_notes.strip()}"
 
-                    final_record = {
-                        "full_name": full_name.strip(),
-                        "email": email.strip() if email.strip() else "not_provided@survey.com",
+                    draft_record = {
+                        "full_name": f"[DRAFT] {draft_name}",
+                        "email": email.strip() if email.strip() else "draft@survey.local",
                         "gender": gender,
                         "age": int(age),
-                        "locality": locality.strip(),
+                        "locality": draft_loc,
                         "household_members": household_members,
                         "highest_qualification": highest_qualification,
                         "highest_qualification_other": highest_qualification_other if highest_qualification_other else None,
                         "members_studying": members_studying,
                         "distance_to_education": distance_to_education,
-                        "education_difficulties": education_difficulties,
+                        "education_difficulties": education_difficulties if education_difficulties else ["No major difficulty"],
                         "education_difficulties_other": education_difficulties_other if education_difficulties_other else None,
                         "employment_status": employment_status,
                         "employment_status_other": employment_status_other if employment_status_other else None,
@@ -1346,38 +1460,130 @@ with nav_tab1:
                         "waste_disposal": waste_disposal,
                         "waste_disposal_other": waste_disposal_other if waste_disposal_other else None,
                         "has_internet": has_internet,
-                        "internet_devices": internet_devices,
+                        "internet_devices": internet_devices if internet_devices else ["Smartphone"],
                         "internet_devices_other": internet_devices_other if internet_devices_other else None,
                         "rating_education": int(r_edu),
                         "rating_healthcare": int(r_health),
                         "rating_transportation": int(r_trans),
                         "rating_banking": int(r_bank),
                         "rating_markets": int(r_market),
-                        "biggest_problems": biggest_problems,
+                        "biggest_problems": biggest_problems if biggest_problems else ["Waste management"],
                         "biggest_problems_other": biggest_problems_other if biggest_problems_other else None,
-                        "highest_priority_improvement": highest_priority,
+                        "highest_priority_improvement": highest_priority if highest_priority else ["Roads and transport"],
                         "highest_priority_improvement_other": highest_priority_other if highest_priority_other else None,
                         "photo_urls": total_photos,
-                        "surveyor_notes": final_notes.strip() if final_notes.strip() else None
+                        "surveyor_notes": draft_notes_col
                     }
 
                     try:
                         if st.session_state.active_draft_id:
-                            update_survey_record(st.session_state.active_draft_id, final_record)
-                            st.success(f"🎉 Resumed survey for '{full_name}' successfully completed and finalized!")
+                            update_survey_record(st.session_state.active_draft_id, draft_record)
+                            st.session_state.draft_data = draft_state_payload
+                            st.success(f"💾 Draft updated for '{draft_name}'! You can safely leave and resume anytime.")
                         else:
-                            insert_survey_record(final_record)
-                            st.success(f"🎉 Survey for '{full_name}' successfully submitted to Supabase!")
-                        
-                        st.session_state.active_draft_id = None
-                        st.session_state.draft_data = {}
-                        st.session_state.form_render_id += 1
-                        st.session_state.household_count += 1
+                            resp_ins = insert_survey_record(draft_record)
+                            if isinstance(resp_ins, list) and len(resp_ins) > 0 and "id" in resp_ins[0]:
+                                st.session_state.active_draft_id = resp_ins[0]["id"]
+                            st.session_state.draft_data = draft_state_payload
+                            st.success(f"💾 Draft saved for '{draft_name}'! You can resume filling it anytime from '📂 Saved Drafts' above.")
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
-                    except Exception as err:
-                        st.error(f"Failed to submit survey to Supabase: {err}")
+                    except Exception as e:
+                        st.error(f"Error saving draft to Supabase: {e}")
+
+            # --- HANDLER 2: FINAL COMPLETE SUBMISSION ---
+            if final_submitted:
+                if not full_name.strip() or full_name.strip().startswith("[DRAFT]"):
+                    st.error("⚠️ Please enter the respondent's full name.")
+                elif not locality.strip() or locality.strip() == "Locality Pending":
+                    st.error("⚠️ Please enter the locality / area name.")
+                else:
+                    with st.spinner("Submitting final survey to Supabase..."):
+                        new_photo_urls = []
+                        if cam_photo is not None:
+                            c_url = upload_photo_to_supabase(cam_photo.getvalue(), f"cam_h{st.session_state.household_count}.jpg")
+                            if c_url:
+                                new_photo_urls.append(c_url)
+                        if file_photos:
+                            for f in file_photos:
+                                f_url = upload_photo_to_supabase(f.getvalue(), f.name)
+                                if f_url:
+                                    new_photo_urls.append(f_url)
+
+                        total_photos = saved_photos + new_photo_urls
+
+                        # Build clean surveyor notes with surveyor tag
+                        final_notes = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] "
+                        if gps_tag.strip():
+                            final_notes += f"[GPS: {gps_tag.strip()}] "
+                        if surveyor_notes and surveyor_notes.strip():
+                            final_notes += surveyor_notes.strip()
+
+                        final_record = {
+                            "full_name": full_name.strip(),
+                            "email": email.strip() if email.strip() else "not_provided@survey.com",
+                            "gender": gender,
+                            "age": int(age),
+                            "locality": locality.strip(),
+                            "household_members": household_members,
+                            "highest_qualification": highest_qualification,
+                            "highest_qualification_other": highest_qualification_other if highest_qualification_other else None,
+                            "members_studying": members_studying,
+                            "distance_to_education": distance_to_education,
+                            "education_difficulties": education_difficulties,
+                            "education_difficulties_other": education_difficulties_other if education_difficulties_other else None,
+                            "employment_status": employment_status,
+                            "employment_status_other": employment_status_other if employment_status_other else None,
+                            "primary_occupation": primary_occupation,
+                            "primary_occupation_other": primary_occupation_other if primary_occupation_other else None,
+                            "earning_members": earning_members,
+                            "monthly_income": monthly_income,
+                            "house_type": house_type,
+                            "house_type_other": house_type_other if house_type_other else None,
+                            "available_rooms": available_rooms,
+                            "has_electricity": has_electricity,
+                            "drinking_water_source": drinking_water_source,
+                            "drinking_water_source_other": drinking_water_source_other if drinking_water_source_other else None,
+                            "water_available_year_round": water_available_year_round,
+                            "toilet_access": toilet_access,
+                            "primary_cooking_fuel": primary_cooking_fuel,
+                            "primary_cooking_fuel_other": primary_cooking_fuel_other if primary_cooking_fuel_other else None,
+                            "waste_disposal": waste_disposal,
+                            "waste_disposal_other": waste_disposal_other if waste_disposal_other else None,
+                            "has_internet": has_internet,
+                            "internet_devices": internet_devices,
+                            "internet_devices_other": internet_devices_other if internet_devices_other else None,
+                            "rating_education": int(r_edu),
+                            "rating_healthcare": int(r_health),
+                            "rating_transportation": int(r_trans),
+                            "rating_banking": int(r_bank),
+                            "rating_markets": int(r_market),
+                            "biggest_problems": biggest_problems,
+                            "biggest_problems_other": biggest_problems_other if biggest_problems_other else None,
+                            "highest_priority_improvement": highest_priority,
+                            "highest_priority_improvement_other": highest_priority_other if highest_priority_other else None,
+                            "photo_urls": total_photos,
+                            "surveyor_notes": final_notes.strip() if final_notes.strip() else None
+                        }
+
+                        try:
+                            if st.session_state.active_draft_id:
+                                update_survey_record(st.session_state.active_draft_id, final_record)
+                                st.success(f"🎉 Resumed survey for '{full_name}' successfully completed and finalized!")
+                            else:
+                                insert_survey_record(final_record)
+                                st.success(f"🎉 Survey for '{full_name}' successfully submitted to Supabase!")
+                        
+                            st.session_state.active_draft_id = None
+                            st.session_state.draft_data = {}
+                            st.session_state.form_render_id += 1
+                            st.session_state.household_count += 1
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as err:
+                            st.error(f"Failed to submit survey to Supabase: {err}")
 
 # ==============================================================================
 # TAB 2: ANALYTICS & SOCIO-ECONOMIC INDICATORS
@@ -1834,167 +2040,7 @@ with nav_tab6:
             surv_runner_map = {f"📋 {s['title']} ({len(s.get('questions', []))} questions)": s for s in all_custom_templates}
             selected_runner_label = st.selectbox("Choose Custom Survey to Fill:", list(surv_runner_map.keys()), key="sel_custom_runner")
             chosen_template = surv_runner_map[selected_runner_label]
-
-            st.markdown(f"### 📋 {chosen_template['title']}")
-            if chosen_template.get("description"):
-                st.caption(chosen_template["description"])
-
-            c_form_key = f"c_runner_form_{chosen_template['id']}_{st.session_state.form_render_id}"
-            with st.form(c_form_key):
-                c_answers = {}
-                c_name = ""
-                c_loc = ""
-                c_gps = ""
-                c_uploaded_photos = []
-
-                q_list = chosen_template.get("questions", [])
-                for idx, q in enumerate(q_list):
-                    q_id = q.get("id", f"q_{idx}")
-                    q_title = q.get("title", f"Question {idx+1}")
-                    q_type = q.get("type", "Short Text")
-                    q_req = q.get("required", False)
-                    label = f"{q_title} *" if q_req else q_title
-
-                    if q_type == "Short Text":
-                        ans_val = st.text_input(label, key=f"{c_form_key}_{q_id}", placeholder="Type response...")
-                        c_answers[q_title] = ans_val
-                        if any(k in q_title.lower() for k in ["name", "respondent"]):
-                            c_name = ans_val
-                        elif any(k in q_title.lower() for k in ["locality", "area", "village", "ward", "address"]):
-                            c_loc = ans_val
-
-                    elif q_type == "Paragraph / Long Text":
-                        ans_val = st.text_area(label, key=f"{c_form_key}_{q_id}", placeholder="Type detailed response...")
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Number":
-                        ans_val = st.number_input(label, key=f"{c_form_key}_{q_id}", step=1, value=0)
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Single Choice (Radio)":
-                        opts = q.get("options", ["Option 1", "Option 2"])
-                        ans_val = st.radio(label, opts, key=f"{c_form_key}_{q_id}", horizontal=True)
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Dropdown Select":
-                        opts = q.get("options", ["Option 1", "Option 2"])
-                        ans_val = st.selectbox(label, opts, key=f"{c_form_key}_{q_id}")
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Multiple Choice (Checkboxes)":
-                        opts = q.get("options", ["Option 1", "Option 2"])
-                        ans_val = st.multiselect(label, opts, key=f"{c_form_key}_{q_id}")
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Yes / No":
-                        ans_val = st.radio(label, ["Yes", "No"], key=f"{c_form_key}_{q_id}", horizontal=True)
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "Rating (1 to 5)":
-                        ans_val = st.select_slider(label, options=[1, 2, 3, 4, 5], value=3, key=f"{c_form_key}_{q_id}")
-                        c_answers[q_title] = ans_val
-
-                    elif q_type == "GPS Location (Phone + Manual)":
-                        st.markdown(f"**{label}**")
-                        c_gps_comp = """
-                        <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:6px 10px; margin-bottom:4px; font-family:sans-serif;">
-                            <button type="button" onclick="getRunGPS()" style="background:#059669; color:#fff; border:none; border-radius:5px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer;">
-                                📱 Auto-Detect Phone GPS
-                            </button>
-                            <div id="run-gps-status" style="margin-top:4px; font-size:11px; color:#1e293b;">
-                                <span style="color:#64748b;">Tap to auto-capture high accuracy GPS.</span>
-                            </div>
-                        </div>
-                        <script>
-                        function getRunGPS() {
-                            var s = document.getElementById('run-gps-status');
-                            if (!navigator.geolocation) { s.innerHTML = '<span style="color:#b91c1c;">Geolocation not supported.</span>'; return; }
-                            s.innerHTML = '<span style="color:#2563eb;">📡 Accessing phone GPS sensors...</span>';
-                            navigator.geolocation.getCurrentPosition(
-                                function(pos) {
-                                    var coords = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
-                                    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(coords); }
-                                    try {
-                                        var inps = window.parent.document.querySelectorAll('input');
-                                        for (var i = 0; i < inps.length; i++) {
-                                            var lbl = (inps[i].getAttribute('aria-label') || '').toLowerCase();
-                                            if (lbl.includes('gps') || lbl.includes('coordinate')) {
-                                                inps[i].value = coords;
-                                                inps[i].dispatchEvent(new Event('input', { bubbles: true }));
-                                                inps[i].dispatchEvent(new Event('change', { bubbles: true }));
-                                            }
-                                        }
-                                    } catch(e) {}
-                                    s.innerHTML = '✅ <b>Captured:</b> ' + coords + ' <span style="color:#15803d;">(Copied to clipboard)</span>';
-                                },
-                                function(err) { s.innerHTML = '<span style="color:#b91c1c;">⚠️ ' + (err.message || 'GPS error') + '</span>'; },
-                                { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-                            );
-                        }
-                        </script>
-                        """
-                        components.html(c_gps_comp, height=75)
-                        gps_input_val = st.text_input("GPS Coordinates (Latitude, Longitude)", placeholder="e.g. 19.0760, 72.8777", key=f"{c_form_key}_{q_id}_gps")
-                        c_gps = gps_input_val
-                        c_answers[q_title] = gps_input_val
-
-                    elif q_type == "Photo Upload / Camera":
-                        st.markdown(f"**{label}**")
-                        c_cam = st.camera_input("📷 Take Photo", key=f"{c_form_key}_{q_id}_cam")
-                        c_file = st.file_uploader("🖼️ Or Upload Photo", type=["jpg", "png", "jpeg", "webp"], key=f"{c_form_key}_{q_id}_file")
-                        if c_cam:
-                            c_uploaded_photos.append(c_cam)
-                        if c_file:
-                            c_uploaded_photos.append(c_file)
-
-                    st.divider()
-
-                submit_c_survey = st.form_submit_button(f"🚀 Submit {chosen_template['title']} Response", type="primary", use_container_width=True)
-                if submit_c_survey:
-                    missing_fields = []
-                    for q in q_list:
-                        if q.get("required"):
-                            t = q.get("title")
-                            a = c_answers.get(t)
-                            if not a or (isinstance(a, str) and not a.strip()) or (isinstance(a, list) and len(a) == 0):
-                                missing_fields.append(t)
-                    
-                    if missing_fields:
-                        st.error(f"⚠️ Please complete required questions: {', '.join(missing_fields)}")
-                    else:
-                        with st.spinner("Submitting custom survey response to Supabase..."):
-                            saved_p_urls = []
-                            for p_i, photo_obj in enumerate(c_uploaded_photos):
-                                p_url = upload_photo_to_supabase(photo_obj.getvalue(), f"custom_{chosen_template['id']}_{int(time.time())}_{p_i}.jpg")
-                                if p_url:
-                                    saved_p_urls.append(p_url)
-
-                            notes_str = f"[CUSTOM_SURVEY_ID: {chosen_template['id']}] [SURVEY_TITLE: {chosen_template['title']}] [SURVEYOR: {st.session_state.user_email.strip()}] "
-                            if c_gps.strip():
-                                notes_str += f"[GPS: {c_gps.strip()}] "
-                            notes_str += f"[CUSTOM_PAYLOAD: {json.dumps(c_answers)}] [SOURCE: Custom Form]"
-
-                            r_name = c_name.strip() if c_name.strip() else f"Respondent ({chosen_template['title']})"
-                            r_loc = c_loc.strip() if c_loc.strip() else "Locality Pending"
-
-                            sub_record = {
-                                "full_name": r_name,
-                                "email": "custom_survey@survey.local",
-                                "gender": "Prefer not to say",
-                                "age": 30,
-                                "locality": r_loc,
-                                "surveyor_notes": notes_str,
-                                "photo_urls": saved_p_urls
-                            }
-
-                            if insert_survey_record(sub_record):
-                                st.success(f"🎉 Response for '{chosen_template['title']}' recorded successfully in Supabase!")
-                                st.session_state.form_render_id += 1
-                                st.cache_data.clear()
-                                time.sleep(1.2)
-                                st.rerun()
-                            else:
-                                st.error("Failed to submit custom survey to Supabase.")
+            render_dynamic_custom_survey(chosen_template, form_key_prefix="tab6_custom")
 
     # --- SUB-TAB 2: DESIGN NEW SURVEY ---
     with b_tab_designer:
