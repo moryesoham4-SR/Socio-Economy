@@ -949,21 +949,18 @@ if not st.session_state.authenticated:
 # ==============================================================================
 
 # --- Sidebar: User Info, Logout & Global Source Trigger ---
-# Theme Mode Toggle
-col_sb_t1, col_sb_t2 = st.sidebar.columns([1.8, 1.2])
-with col_sb_t1:
-    st.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
-with col_sb_t2:
-    thm_choice = st.selectbox(
-        "Theme",
-        ["☀️ Light", "🌙 Dark"],
-        index=1 if is_dark else 0,
-        key="sb_theme_toggle",
-        label_visibility="collapsed"
-    )
-    if ("Dark" in thm_choice) != is_dark:
-        st.session_state.theme_mode = "🌙 Dark" if "Dark" in thm_choice else "☀️ Light"
-        st.rerun()
+st.sidebar.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
+thm_choice = st.sidebar.radio(
+    "Theme Mode:",
+    ["☀️ Light", "🌙 Dark"],
+    index=1 if is_dark else 0,
+    horizontal=True,
+    key="sb_theme_toggle"
+)
+if ("Dark" in thm_choice) != is_dark:
+    st.session_state.theme_mode = "🌙 Dark" if "Dark" in thm_choice else "☀️ Light"
+    st.rerun()
+
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.user_email = ""
@@ -982,8 +979,7 @@ curr_user_email = str(st.session_state.get("user_email", "")).strip().lower()
 df_raw = fetch_all_responses()
 
 # Collect custom survey templates from cloud
-custom_templates = fetch_survey_templates()
-custom_templates_map = {t["title"].strip(): t for t in custom_templates if t.get("title")}
+all_cloud_templates = fetch_survey_templates()
 
 # Separate drafts from finalized responses
 # CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
@@ -1036,23 +1032,40 @@ if st.sidebar.button("🔄 Refresh Cloud Data", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-# Build master Global Survey Switcher options list
+# 1. Apply Account Scope on completed responses:
+if account_scope_is_my:
+    if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
+        df_completed = df_all_completed[df_all_completed["surveyor_email"].str.lower() == curr_user_email].copy()
+    else:
+        df_completed = pd.DataFrame()
+else:
+    df_completed = df_all_completed.copy()
+
+# 2. Filter custom survey templates strictly by creator account:
+if account_scope_is_my:
+    custom_templates = [t for t in all_cloud_templates if str(t.get("created_by", "")).strip().lower() == curr_user_email]
+else:
+    custom_templates = all_cloud_templates
+custom_templates_map = {t["title"].strip(): t for t in custom_templates if t.get("title")}
+
+# 3. Build master Global Survey Switcher options list (account-isolated)
 survey_switch_options = ["🏡 Socio-Economic Survey"]
 for t_title in custom_templates_map.keys():
     if t_title not in survey_switch_options:
         survey_switch_options.append(t_title)
 
-if not df_raw.empty and "survey_name" in df_raw.columns:
-    for s_val in df_raw["survey_name"].dropna().unique():
+# Only add questionnaires that actually belong to the filtered responses
+if not df_completed.empty and "survey_name" in df_completed.columns:
+    for s_val in df_completed["survey_name"].dropna().unique():
         s_clean = str(s_val).strip()
         if s_clean and s_clean not in survey_switch_options and s_clean != "🏡 Socio-Economic Survey":
             survey_switch_options.append(s_clean)
 
-if len(custom_templates_map) > 0 or (not df_raw.empty and "survey_name" in df_raw.columns and df_raw["survey_name"].nunique() > 1):
+if len(survey_switch_options) > 1:
     survey_switch_options.append("🌐 All Surveys (Combined View)")
 
 # --- Top Header: Global Survey Switcher & Status ---
-col_head1, col_head2 = st.columns([2.3, 1.7])
+col_head1, col_head2 = st.columns([2.6, 1.4])
 with col_head2:
     active_survey = st.selectbox(
         "📋 Active Survey / Questionnaire:",
@@ -1070,15 +1083,6 @@ with col_head1:
 st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Active Survey")
 st.sidebar.markdown(f"**Current:** `{active_survey}`")
-
-# 1. Apply Account Scope on completed responses:
-if account_scope_is_my:
-    if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
-        df_completed = df_all_completed[df_all_completed["surveyor_email"].str.lower() == curr_user_email].copy()
-    else:
-        df_completed = pd.DataFrame()
-else:
-    df_completed = df_all_completed.copy()
 
 # 2. Apply Global Active Survey Filter on completed responses:
 if active_survey != "🌐 All Surveys (Combined View)":
@@ -2584,7 +2588,11 @@ with nav_tab6:
         "📋 Published Surveys Library"
     ])
 
-    all_custom_templates = fetch_survey_templates()
+    raw_custom_templates = fetch_survey_templates()
+    if account_scope_is_my:
+        all_custom_templates = [s for s in raw_custom_templates if str(s.get("created_by", "")).strip().lower() == curr_user_email]
+    else:
+        all_custom_templates = raw_custom_templates
 
     # --- SUB-TAB 1: RUN / TAKE A CUSTOM SURVEY ---
     with b_tab_runner:
@@ -2741,7 +2749,7 @@ with nav_tab6:
                     col_del1, col_del2 = st.columns([3, 1])
                     with col_del2:
                         if st.button("🗑️ Delete Survey", key=f"del_lib_surv_{s['id']}", use_container_width=True):
-                            remaining = [x for x in all_custom_templates if x["id"] != s["id"]]
+                            remaining = [x for x in raw_custom_templates if x["id"] != s["id"]]
                             if save_survey_templates(remaining):
                                 st.success(f"Survey '{s['title']}' deleted.")
                                 st.cache_data.clear()
