@@ -4,10 +4,11 @@ import plotly.express as px
 import folium
 from streamlit_folium import st_folium
 try:
-    from folium.plugins import LocateControl, Fullscreen
+    from folium.plugins import LocateControl, Fullscreen, HeatMap
 except Exception:
     LocateControl = None
     Fullscreen = None
+    HeatMap = None
 import streamlit.components.v1 as components
 import urllib.request
 import urllib.error
@@ -2185,7 +2186,73 @@ with nav_tab3:
             return float(match.group(1)), float(match.group(2))
         return None, None
 
-    # Manual Coordinate Search & Pin Bar
+    # --- 1. Analytical Distribution Filters & Symbology Toolbar ---
+    with st.expander("🔍 Filter Map by Analytical Distribution & Symbology", expanded=True):
+        col_af1, col_af2, col_af3, col_af4 = st.columns(4)
+        
+        avail_incomes = sorted([str(x) for x in df_filtered["monthly_income"].dropna().unique()]) if ("monthly_income" in df_filtered.columns and not df_filtered.empty) else []
+        with col_af1:
+            sel_income = st.multiselect("💰 Income Bracket:", options=avail_incomes, placeholder="All Incomes", key="gis_f_income")
+
+        avail_houses = sorted([str(x) for x in df_filtered["house_type"].dropna().unique()]) if ("house_type" in df_filtered.columns and not df_filtered.empty) else []
+        with col_af2:
+            sel_houses = st.multiselect("🏠 Housing Type:", options=avail_houses, placeholder="All House Types", key="gis_f_house")
+
+        avail_water = sorted([str(x) for x in df_filtered["drinking_water_source"].dropna().unique()]) if ("drinking_water_source" in df_filtered.columns and not df_filtered.empty) else []
+        with col_af3:
+            sel_water = st.multiselect("🚰 Water Source:", options=avail_water, placeholder="All Sources", key="gis_f_water")
+
+        avail_localities = sorted([str(x) for x in df_filtered["locality"].dropna().unique()]) if ("locality" in df_filtered.columns and not df_filtered.empty) else []
+        with col_af4:
+            sel_locality = st.multiselect("📍 Locality / Ward:", options=avail_localities, placeholder="All Localities", key="gis_f_loc")
+
+        col_sym1, col_sym2 = st.columns([2.5, 1.5])
+        with col_sym1:
+            color_by_mode = st.selectbox(
+                "🎨 Color Pins by Analytical Indicator:",
+                [
+                    "Default (Survey Type & Mode)",
+                    "💰 Monthly Income Level",
+                    "🏠 Housing Structure (Kaccha / Pucca)",
+                    "🚰 Drinking Water Vulnerability",
+                    "⭐ Public Services Quality Satisfaction"
+                ],
+                index=0,
+                key="gis_color_by"
+            )
+        with col_sym2:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            show_heatmap = st.checkbox("🔥 Show Density Heatmap", value=False, key="gis_show_heatmap")
+
+    # Apply analytical distribution filters
+    df_gis = df_filtered.copy()
+    if sel_income and "monthly_income" in df_gis.columns:
+        df_gis = df_gis[df_gis["monthly_income"].astype(str).isin(sel_income)]
+    if sel_houses and "house_type" in df_gis.columns:
+        df_gis = df_gis[df_gis["house_type"].astype(str).isin(sel_houses)]
+    if sel_water and "drinking_water_source" in df_gis.columns:
+        df_gis = df_gis[df_gis["drinking_water_source"].astype(str).isin(sel_water)]
+    if sel_locality and "locality" in df_gis.columns:
+        df_gis = df_gis[df_gis["locality"].astype(str).isin(sel_locality)]
+
+    # Parse filtered survey GPS coordinates
+    valid_coords = []
+    if not df_gis.empty and 'surveyor_notes' in df_gis.columns:
+        gps_coords = [parse_gps(n) for n in df_gis['surveyor_notes']]
+        valid_coords = [(lat, lon, df_gis.iloc[i]) for i, (lat, lon) in enumerate(gps_coords) if lat is not None and lon is not None]
+
+    # --- 2. Live Map KPI Metric Summary ---
+    col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+    col_k1.metric("📍 GPS Pins in View", len(valid_coords))
+    col_k2.metric("📋 Total Records Filtered", len(df_gis))
+    col_k3.metric("🎨 Active Symbology", color_by_mode.split()[1] if len(color_by_mode.split()) > 1 else "Default")
+    if "monthly_income" in df_gis.columns and not df_gis.empty:
+        low_inc = len(df_gis[df_gis["monthly_income"].astype(str).str.contains("Below|10,000", case=False, na=False)])
+        col_k4.metric("⚠️ Low-Income (< ₹10k)", f"{low_inc} ({low_inc/len(df_gis)*100:.0f}%)" if len(df_gis) else "0")
+    else:
+        col_k4.metric("🗺️ Active Questionnaire", active_survey)
+
+    # --- 3. Manual Coordinate Search & Pin Bar ---
     col_gis1, col_gis2 = st.columns([3, 1])
     with col_gis1:
         manual_gis_search = st.text_input(
@@ -2202,12 +2269,6 @@ with nav_tab3:
         m_match = re.search(r'([+-]?\d+\.?\d*)\s*,\s*([+-]?\d+\.?\d*)', manual_gis_search.strip())
         if m_match:
             manual_point = (float(m_match.group(1)), float(m_match.group(2)))
-
-    # Parse filtered survey GPS coordinates
-    valid_coords = []
-    if not df_filtered.empty and 'surveyor_notes' in df_filtered.columns:
-        gps_coords = [parse_gps(n) for n in df_filtered['surveyor_notes']]
-        valid_coords = [(lat, lon, df_filtered.iloc[i]) for i, (lat, lon) in enumerate(gps_coords) if lat is not None and lon is not None]
 
     # Determine center and zoom level
     if manual_point:
@@ -2254,6 +2315,16 @@ with nav_tab3:
             </style>
         """))
 
+    # Add Density Heatmap Layer if requested
+    if show_heatmap and HeatMap and valid_coords:
+        HeatMap(
+            [[c[0], c[1], 1.0] for c in valid_coords],
+            name="🔥 Concentration Heatmap",
+            min_opacity=0.35,
+            radius=24,
+            blur=16
+        ).add_to(m)
+
     # Phone GPS Live Tracking Control
     if LocateControl:
         LocateControl(
@@ -2270,27 +2341,117 @@ with nav_tab3:
     # Layer Switcher
     folium.LayerControl(position='topright').add_to(m)
 
-    # Plot Household survey markers
+    # Plot Household survey markers with Dynamic Analytical Symbology
     for lat, lon, row in valid_coords:
         s_name = str(row.get("survey_name", "🏡 Socio-Economic Survey"))
         is_custom = s_name != "🏡 Socio-Economic Survey"
         is_gform = row.get("source_type") == "Google Form"
-        
-        if is_custom:
-            marker_color = "purple"
-            icon_symbol = "clipboard"
-        elif is_gform:
-            marker_color = "green"
-            icon_symbol = "file-alt"
+
+        # Determine Marker Color and Icon by Analytical Distribution
+        if color_by_mode == "💰 Monthly Income Level":
+            inc = str(row.get("monthly_income", "")).lower()
+            if "below" in inc or ("10,000" in inc and "25,000" not in inc):
+                marker_color = "red"
+                icon_symbol = "exclamation-triangle"
+                badge_text = "Income: < ₹10k"
+            elif "25,000" in inc and "50,000" not in inc:
+                marker_color = "orange"
+                icon_symbol = "rupee-sign"
+                badge_text = "Income: ₹10k - ₹25k"
+            elif "50,000" in inc and "above" not in inc:
+                marker_color = "blue"
+                icon_symbol = "wallet"
+                badge_text = "Income: ₹25k - ₹50k"
+            elif "above" in inc:
+                marker_color = "green"
+                icon_symbol = "money-bill"
+                badge_text = "Income: > ₹50k"
+            else:
+                marker_color = "gray"
+                icon_symbol = "info"
+                badge_text = f"Income: {inc or 'N/A'}"
+
+        elif color_by_mode == "🏠 Housing Structure (Kaccha / Pucca)":
+            ht = str(row.get("house_type", "")).lower()
+            if "kaccha" in ht:
+                marker_color = "red"
+                icon_symbol = "exclamation"
+                badge_text = "Structure: Kaccha"
+            elif "semi" in ht:
+                marker_color = "orange"
+                icon_symbol = "home"
+                badge_text = "Structure: Semi-Pucca"
+            elif "pucca" in ht:
+                marker_color = "green"
+                icon_symbol = "building"
+                badge_text = "Structure: Pucca"
+            else:
+                marker_color = "gray"
+                icon_symbol = "home"
+                badge_text = f"Structure: {ht or 'N/A'}"
+
+        elif color_by_mode == "🚰 Drinking Water Vulnerability":
+            ws = str(row.get("drinking_water_source", "")).lower()
+            if any(k in ws for k in ["surface", "tanker", "unprotected", "bottled"]):
+                marker_color = "red"
+                icon_symbol = "tint-slash"
+                badge_text = "Water: Vulnerable"
+            elif any(k in ws for k in ["public", "standpipe", "hand pump", "well", "tube"]):
+                marker_color = "orange"
+                icon_symbol = "faucet"
+                badge_text = "Water: Shared / Public"
+            elif "piped" in ws:
+                marker_color = "green"
+                icon_symbol = "tint"
+                badge_text = "Water: Piped to Dwelling"
+            else:
+                marker_color = "gray"
+                icon_symbol = "tint"
+                badge_text = f"Water: {ws or 'N/A'}"
+
+        elif color_by_mode == "⭐ Public Services Quality Satisfaction":
+            r_cols = ['rating_education', 'rating_healthcare', 'rating_transportation', 'rating_banking', 'rating_markets']
+            r_vals = [pd.to_numeric(row.get(c), errors='coerce') for c in r_cols if c in row]
+            r_vals = [v for v in r_vals if pd.notna(v)]
+            if r_vals:
+                avg_r = sum(r_vals) / len(r_vals)
+                if avg_r < 2.5:
+                    marker_color = "red"
+                    icon_symbol = "thumbs-down"
+                    badge_text = f"Satisfaction: Low ({avg_r:.1f}/5)"
+                elif avg_r <= 3.5:
+                    marker_color = "orange"
+                    icon_symbol = "minus"
+                    badge_text = f"Satisfaction: Moderate ({avg_r:.1f}/5)"
+                else:
+                    marker_color = "green"
+                    icon_symbol = "thumbs-up"
+                    badge_text = f"Satisfaction: High ({avg_r:.1f}/5)"
+            else:
+                marker_color = "gray"
+                icon_symbol = "star"
+                badge_text = "Satisfaction: N/A"
+
         else:
-            marker_color = "blue"
-            icon_symbol = "home"
+            # Default (Survey Type & Mode)
+            if is_custom:
+                marker_color = "purple"
+                icon_symbol = "clipboard"
+                badge_text = f"Custom: {s_name}"
+            elif is_gform:
+                marker_color = "green"
+                icon_symbol = "file-alt"
+                badge_text = "Source: Google Form"
+            else:
+                marker_color = "blue"
+                icon_symbol = "home"
+                badge_text = "Source: On-Field"
 
         popup_html = f"""
-        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; width: 230px; line-height: 1.4;">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; width: 240px; line-height: 1.4;">
             <b style="color: #2563eb; font-size: 13px;">{row['full_name']}</b><br>
             <span style="display:inline-block; margin-top:2px; font-size:10px; background:#eff6ff; color:#1d4ed8; font-weight:700; padding:1px 6px; border-radius:3px;">
-                📋 {s_name}
+                {badge_text}
             </span><br>
             <span style="color: #64748b;">📍 {row['locality']} ({row.get('source_type', 'On-Field')})</span><hr style="margin: 5px 0;">
         """
@@ -2299,14 +2460,14 @@ with nav_tab3:
                 popup_html += f"<b>{q_k[:18]}:</b> {str(a_v)[:25]}<br>"
         else:
             occ_display = row.get('household_main_occupation', row.get('primary_occupation', 'N/A'))
-            popup_html += f"<b>Occupation:</b> {occ_display}<br><b>House:</b> {row['house_type']}<br><b>Income:</b> {row['monthly_income']}<br>"
+            popup_html += f"<b>Occupation:</b> {occ_display}<br><b>House:</b> {row.get('house_type', 'N/A')}<br><b>Income:</b> {row.get('monthly_income', 'N/A')}<br><b>Water:</b> {row.get('drinking_water_source', 'N/A')}<br>"
         
         popup_html += f"<b>GPS:</b> {lat:.6f}, {lon:.6f}</div>"
 
         folium.Marker(
             location=[lat, lon],
-            popup=folium.Popup(popup_html, max_width=270),
-            tooltip=f"{row['full_name']} — {row['locality']} [{s_name}]",
+            popup=folium.Popup(popup_html, max_width=280),
+            tooltip=f"{row['full_name']} — {row['locality']} [{badge_text}]",
             icon=folium.Icon(color=marker_color, icon=icon_symbol, prefix="fa")
         ).add_to(m)
 
@@ -2336,15 +2497,68 @@ with nav_tab3:
         c_lng = map_data["last_clicked"]["lng"]
         st.success(f"📍 **Selected Point Coordinates:** `{c_lat:.6f}, {c_lng:.6f}` — Clicked on map")
 
+    # --- 4. Dynamic Analytical Map Legend ---
+    legend_bg = "#1e293b" if is_dark else "#f8fafc"
+    legend_border = "#334155" if is_dark else "#cbd5e1"
+    legend_text = "#f8fafc" if is_dark else "#1e293b"
+
+    if color_by_mode == "💰 Monthly Income Level":
+        st.markdown(f"""
+        <div style="background:{legend_bg}; border:1px solid {legend_border}; color:{legend_text}; padding:8px 14px; border-radius:6px; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+            <span><b>🎨 Income Symbology Legend:</b></span>
+            <span>🔴 <b style="color:#ef4444;">Below ₹10,000</b> (High Economic Vulnerability)</span>
+            <span>🟠 <b style="color:#f97316;">₹10,000 - ₹25,000</b></span>
+            <span>🔵 <b style="color:#38bdf8;">₹25,001 - ₹50,000</b></span>
+            <span>🟢 <b style="color:#22c55e;">Above ₹50,000</b></span>
+        </div>
+        """, unsafe_allow_html=True)
+    elif color_by_mode == "🏠 Housing Structure (Kaccha / Pucca)":
+        st.markdown(f"""
+        <div style="background:{legend_bg}; border:1px solid {legend_border}; color:{legend_text}; padding:8px 14px; border-radius:6px; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+            <span><b>🎨 Housing Structure Legend:</b></span>
+            <span>🔴 <b style="color:#ef4444;">Kaccha</b> (Mud / Thatched / Vulnerable)</span>
+            <span>🟠 <b style="color:#f97316;">Semi-Pucca</b> (Brick / Tin)</span>
+            <span>🟢 <b style="color:#22c55e;">Pucca</b> (Cement / Concrete)</span>
+        </div>
+        """, unsafe_allow_html=True)
+    elif color_by_mode == "🚰 Drinking Water Vulnerability":
+        st.markdown(f"""
+        <div style="background:{legend_bg}; border:1px solid {legend_border}; color:{legend_text}; padding:8px 14px; border-radius:6px; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+            <span><b>🎨 Water Access Legend:</b></span>
+            <span>🔴 <b style="color:#ef4444;">Vulnerable</b> (Surface / Tanker / Unprotected)</span>
+            <span>🟠 <b style="color:#f97316;">Shared Standpipe / Hand Pump / Well</b></span>
+            <span>🟢 <b style="color:#22c55e;">Piped Water into Dwelling</b></span>
+        </div>
+        """, unsafe_allow_html=True)
+    elif color_by_mode == "⭐ Public Services Quality Satisfaction":
+        st.markdown(f"""
+        <div style="background:{legend_bg}; border:1px solid {legend_border}; color:{legend_text}; padding:8px 14px; border-radius:6px; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+            <span><b>🎨 Satisfaction Legend:</b></span>
+            <span>🔴 <b style="color:#ef4444;">Dissatisfied (< 2.5/5)</b></span>
+            <span>🟠 <b style="color:#f97316;">Neutral (2.5 - 3.5/5)</b></span>
+            <span>🟢 <b style="color:#22c55e;">Satisfied (> 3.5/5)</b></span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background:{legend_bg}; border:1px solid {legend_border}; color:{legend_text}; padding:8px 14px; border-radius:6px; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+            <span><b>🎨 Map Legend:</b></span>
+            <span>🔵 <b style="color:#38bdf8;">On-Field Direct Survey</b></span>
+            <span>🟢 <b style="color:#22c55e;">Google Form Import</b></span>
+            <span>🟣 <b style="color:#c084fc;">Custom Questionnaire</b></span>
+            <span>🔴 <b style="color:#ef4444;">Manual Custom Pin</b></span>
+        </div>
+        """, unsafe_allow_html=True)
+
     col_gis_info1, col_gis_info2 = st.columns([2, 1])
     with col_gis_info1:
         if valid_coords:
-            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{active_survey}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
+            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles matching your analytical filters for **{active_survey}**.")
         else:
             if account_scope_is_my:
                 st.info(f"ℹ️ No GPS-tagged household records found yet for your account (`{curr_user_email}`). Submit a survey with GPS in Tab 1 to view pins.")
             else:
-                st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
+                st.info("ℹ️ No GPS-tagged household records match the selected analytical distribution filters.")
     with col_gis_info2:
         st.caption("💡 **Tip:** Tap 📍 on top-left to track phone GPS. Toggle 🛰️ Satellite view on top-right.")
 
