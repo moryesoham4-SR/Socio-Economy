@@ -794,9 +794,6 @@ def fetch_all_responses():
                     m = re.search(r'\[SURVEYOR:\s*([^\]]+)\]', notes)
                     if m:
                         return m.group(1).strip().lower()
-                    em = str(row.get("email", "")).strip().lower()
-                    if "@" in em and not any(k in em for k in ["not_provided", "draft@survey", "custom_survey", "gform@"]):
-                        return em
                     return "legacy / shared"
 
                 def extract_survey_name(row):
@@ -1012,17 +1009,14 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Account Data Scope")
 
 scope_opt_my = f"👤 My Submissions Only ({my_submissions_count})"
-scope_opt_all = f"🌐 All Team Data & Past Accounts ({total_submissions_count})"
+scope_opt_all = f"🌐 All Team Data (Combined) ({total_submissions_count})"
 scope_options = [scope_opt_my, scope_opt_all]
-
-# If this account has 0 submissions and there is past data in database, default to All Team Data so old ID data is visible!
-default_scope_idx = 1 if (my_submissions_count == 0 and total_submissions_count > 0) else 0
 
 selected_scope_raw = st.sidebar.radio(
     "Data Scope:",
     scope_options,
-    index=default_scope_idx,
-    help="Default switches between viewing only your current account's entries or all collective data from past accounts and team enumerators."
+    index=0,
+    help="Default 'My Submissions Only' strictly isolates your workspace to your account. Switch to 'All Team Data' if you wish to view collective data across all enumerators."
 )
 
 account_scope_is_my = (selected_scope_raw == scope_opt_my)
@@ -1999,10 +1993,10 @@ with nav_tab2:
     st.caption(f"Active Questionnaire: **{active_survey}** | Source Filter: **{data_source_trigger}** | Scope: **{account_scope}**")
     
     if df_filtered.empty:
-        if my_submissions_count == 0 and total_submissions_count > 0 and account_scope_is_my:
-            st.info(f"💡 You have 0 submissions under this login (`{curr_user_email}`). There are **{total_submissions_count}** past submissions in the database. Switch **Data Scope** in the sidebar to **'{scope_opt_all}'** to populate analytics.")
+        if account_scope_is_my:
+            st.info(f"ℹ️ No submissions found yet for your account (`{curr_user_email}`). Complete a survey in Tab 1 to see your data.")
         else:
-            st.info(f"ℹ️ No records found for '{active_survey}' under the selected filters. Enter records in Tab 1 to populate analytics.")
+            st.info(f"ℹ️ No records found for '{active_survey}' under the selected filters.")
     else:
         tot_hh = len(df_filtered)
         tot_photos = sum([len(p) for p in df_filtered['photo_urls'] if isinstance(p, list)])
@@ -2343,8 +2337,8 @@ with nav_tab3:
         if valid_coords:
             st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{active_survey}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
         else:
-            if my_submissions_count == 0 and total_submissions_count > 0 and account_scope_is_my:
-                st.info(f"💡 You have 0 submissions under this login (`{curr_user_email}`). There are **{total_submissions_count}** past submissions in the database. Switch **Data Scope** in the sidebar to **'{scope_opt_all}'** to display all pins on the map.")
+            if account_scope_is_my:
+                st.info(f"ℹ️ No GPS-tagged household records found yet for your account (`{curr_user_email}`). Submit a survey with GPS in Tab 1 to view pins.")
             else:
                 st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
     with col_gis_info2:
