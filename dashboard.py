@@ -467,9 +467,20 @@ def fetch_all_responses():
                         return f"{lat:.6f}, {lon:.6f}"
                     return ""
 
+                def extract_surveyor(row):
+                    notes = str(row.get("surveyor_notes", ""))
+                    m = re.search(r'\[SURVEYOR:\s*([^\]]+)\]', notes)
+                    if m:
+                        return m.group(1).strip().lower()
+                    em = str(row.get("email", "")).strip().lower()
+                    if "@" in em and not any(k in em for k in ["not_provided", "draft@survey", "custom_survey", "gform@"]):
+                        return em
+                    return "legacy / shared"
+
                 df["source_type"] = df.apply(extract_source, axis=1)
                 df["is_draft"] = df.apply(extract_draft_status, axis=1)
                 df["gps_coordinates"] = df.apply(extract_gps_str, axis=1)
+                df["surveyor_email"] = df.apply(extract_surveyor, axis=1)
 
                 # Standardize column naming: primary_occupation -> household_main_occupation
                 if "primary_occupation" in df.columns:
@@ -508,7 +519,14 @@ if not st.session_state.authenticated:
                         success, res = supabase_sign_in(login_email, login_pass)
                         if success:
                             st.session_state.authenticated = True
-                            st.session_state.user_email = res
+                            st.session_state.user_email = res.strip()
+                            st.session_state.active_draft_id = None
+                            st.session_state.draft_data = {}
+                            st.session_state.household_count = 1
+                            st.session_state.form_render_id = st.session_state.get("form_render_id", 0) + 1
+                            if "builder_questions" in st.session_state:
+                                st.session_state.builder_questions = []
+                            st.cache_data.clear()
                             st.success("Authentication successful!")
                             st.rerun()
                         else:
@@ -532,7 +550,26 @@ if not st.session_state.authenticated:
                     with st.spinner("Creating account in Supabase..."):
                         success, msg = supabase_sign_up(reg_email, reg_pass)
                         if success:
-                            st.success(msg)
+                            succ_in, res_in = supabase_sign_in(reg_email, reg_pass)
+                            if succ_in:
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = res_in.strip()
+                                st.session_state.active_draft_id = None
+                                st.session_state.draft_data = {}
+                                st.session_state.household_count = 1
+                                st.session_state.form_render_id = st.session_state.get("form_render_id", 0) + 1
+                                if "builder_questions" in st.session_state:
+                                    st.session_state.builder_questions = []
+                                st.cache_data.clear()
+                                st.success(f"🎉 Account created! Logged in as {res_in.strip()}. Starting your fresh workspace...")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.session_state.active_draft_id = None
+                                st.session_state.draft_data = {}
+                                st.session_state.household_count = 1
+                                st.cache_data.clear()
+                                st.success(f"{msg} Please sign in using the 'Sign In' tab.")
                         else:
                             st.error(f"Registration note: {msg}")
 
@@ -544,6 +581,13 @@ if not st.session_state.authenticated:
             if st.button("Continue as Enumerator", type="secondary", use_container_width=True):
                 st.session_state.authenticated = True
                 st.session_state.user_email = f"{guest_name.strip()} (Enumerator)"
+                st.session_state.active_draft_id = None
+                st.session_state.draft_data = {}
+                st.session_state.household_count = 1
+                st.session_state.form_render_id = st.session_state.get("form_render_id", 0) + 1
+                if "builder_questions" in st.session_state:
+                    st.session_state.builder_questions = []
+                st.cache_data.clear()
                 st.rerun()
 
     st.stop()  # Stop execution here until logged in
@@ -557,7 +601,26 @@ st.sidebar.markdown(f"**👤 Surveyor:** `{st.session_state.user_email}`")
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.user_email = ""
+    st.session_state.active_draft_id = None
+    st.session_state.draft_data = {}
+    st.session_state.household_count = 1
+    st.session_state.form_render_id = st.session_state.get("form_render_id", 0) + 1
+    if "builder_questions" in st.session_state:
+        st.session_state.builder_questions = []
+    st.cache_data.clear()
     st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔒 Account Data Scope")
+
+curr_user_email = str(st.session_state.get("user_email", "")).strip().lower()
+
+account_scope = st.sidebar.radio(
+    "Data Scope:",
+    ["👤 My Submissions Only", "🌐 All Team Data (Combined)"],
+    index=0,
+    help="Default 'My Submissions Only' keeps your workspace isolated to your account. Switch to 'All Team Data' to view collective data across all enumerators."
+)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎚️ Data Source View")
@@ -573,12 +636,26 @@ data_source_trigger = st.sidebar.radio(
 df_raw = fetch_all_responses()
 
 # Separate drafts from finalized responses
+# CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
 if not df_raw.empty and "is_draft" in df_raw.columns:
-    df_drafts = df_raw[df_raw["is_draft"] == True].copy()
-    df_completed = df_raw[df_raw["is_draft"] == False].copy()
+    if "surveyor_email" in df_raw.columns:
+        df_drafts = df_raw[(df_raw["is_draft"] == True) & (df_raw["surveyor_email"].str.lower() == curr_user_email)].copy()
+    else:
+        df_drafts = df_raw[df_raw["is_draft"] == True].copy()
+    
+    df_all_completed = df_raw[df_raw["is_draft"] == False].copy()
 else:
     df_drafts = pd.DataFrame()
-    df_completed = df_raw.copy()
+    df_all_completed = df_raw.copy()
+
+# Apply Account Scope on completed responses:
+if account_scope == "👤 My Submissions Only":
+    if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
+        df_completed = df_all_completed[df_all_completed["surveyor_email"].str.lower() == curr_user_email].copy()
+    else:
+        df_completed = pd.DataFrame()
+else:
+    df_completed = df_all_completed.copy()
 
 # Apply Trigger Button Filter on completed responses (so incomplete drafts don't skew analytics)
 if not df_completed.empty and "source_type" in df_completed.columns:
@@ -595,7 +672,7 @@ else:
 col_head1, col_head2 = st.columns([3, 1.2])
 with col_head1:
     st.markdown('<div class="main-title">🏡 Socio-Economic Community Assessment</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-title">Active Filter: <b>{data_source_trigger}</b> | Logged in as: {st.session_state.user_email}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title">Scope: <b>{account_scope}</b> | Filter: <b>{data_source_trigger}</b> | Surveyor: <b>{st.session_state.user_email}</b></div>', unsafe_allow_html=True)
 with col_head2:
     st.write("")
     if st.button("🔄 Refresh Cloud Data", use_container_width=True):
@@ -689,7 +766,7 @@ with nav_tab1:
                                 "biggest_problems": ["Waste management"],
                                 "highest_priority_improvement": ["Roads and transport"],
                                 "photo_urls": [],
-                                "surveyor_notes": f"[SOURCE: Google Form] Imported from CSV ({uploaded_csv.name})"
+                                "surveyor_notes": f"[SOURCE: Google Form] [SURVEYOR: {st.session_state.user_email.strip()}] Imported from CSV ({uploaded_csv.name})"
                             }
                             try:
                                 insert_survey_record(g_record)
@@ -1141,7 +1218,7 @@ with nav_tab1:
                 }
 
                 raw_json = json.dumps(draft_state_payload)
-                draft_notes_col = f"{form_source_tag} [STATUS: DRAFT] [DRAFT_RAW: {raw_json}]"
+                draft_notes_col = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] [STATUS: DRAFT] [DRAFT_RAW: {raw_json}]"
                 if surveyor_notes and surveyor_notes.strip():
                     draft_notes_col += f" {surveyor_notes.strip()}"
 
@@ -1230,8 +1307,8 @@ with nav_tab1:
 
                     total_photos = saved_photos + new_photo_urls
 
-                    # Build clean surveyor notes
-                    final_notes = f"{form_source_tag} "
+                    # Build clean surveyor notes with surveyor tag
+                    final_notes = f"{form_source_tag} [SURVEYOR: {st.session_state.user_email.strip()}] "
                     if gps_tag.strip():
                         final_notes += f"[GPS: {gps_tag.strip()}] "
                     if surveyor_notes and surveyor_notes.strip():
@@ -1670,7 +1747,8 @@ with nav_tab5:
 
                         # Clean notes display without raw tags
                         clean_notes_val = re.sub(r'\[GPS:\s*[+-]?\d+\.?\d*,\s*[+-]?\d+\.?\d*\]', '', curr_raw_notes)
-                        clean_notes_val = re.sub(r'\[SOURCE:[^\]]+\]', '', clean_notes_val).strip()
+                        clean_notes_val = re.sub(r'\[SOURCE:[^\]]+\]', '', clean_notes_val)
+                        clean_notes_val = re.sub(r'\[SURVEYOR:[^\]]+\]', '', clean_notes_val).strip()
                         new_notes = st.text_area("Surveyor Notes / Observations", value=clean_notes_val, placeholder="Observations or notes...")
                         
                         save_edit = st.form_submit_button("💾 Save Changes to Record", type="primary", use_container_width=True)
@@ -1678,7 +1756,10 @@ with nav_tab5:
                             src_match = re.search(r'\[SOURCE:[^\]]+\]', curr_raw_notes)
                             src_prefix = src_match.group(0) + " " if src_match else ""
                             
-                            final_notes_str = src_prefix
+                            surv_match = re.search(r'\[SURVEYOR:[^\]]+\]', curr_raw_notes)
+                            surv_prefix = surv_match.group(0) + " " if surv_match else f"[SURVEYOR: {st.session_state.user_email.strip()}] "
+                            
+                            final_notes_str = f"{src_prefix}{surv_prefix}"
                             if new_gps.strip():
                                 clean_gps = new_gps.replace("[", "").replace("]", "").replace("GPS:", "").strip()
                                 final_notes_str += f"[GPS: {clean_gps}] "
@@ -1888,7 +1969,7 @@ with nav_tab6:
                                 if p_url:
                                     saved_p_urls.append(p_url)
 
-                            notes_str = f"[CUSTOM_SURVEY_ID: {chosen_template['id']}] [SURVEY_TITLE: {chosen_template['title']}] "
+                            notes_str = f"[CUSTOM_SURVEY_ID: {chosen_template['id']}] [SURVEY_TITLE: {chosen_template['title']}] [SURVEYOR: {st.session_state.user_email.strip()}] "
                             if c_gps.strip():
                                 notes_str += f"[GPS: {c_gps.strip()}] "
                             notes_str += f"[CUSTOM_PAYLOAD: {json.dumps(c_answers)}] [SOURCE: Custom Form]"
