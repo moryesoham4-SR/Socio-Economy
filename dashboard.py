@@ -979,17 +979,54 @@ if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
+curr_user_email = str(st.session_state.get("user_email", "")).strip().lower()
+
+# Fetch data from Supabase first
+df_raw = fetch_all_responses()
+
+# Collect custom survey templates from cloud
+custom_templates = fetch_survey_templates()
+custom_templates_map = {t["title"].strip(): t for t in custom_templates if t.get("title")}
+
+# Separate drafts from finalized responses
+# CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
+if not df_raw.empty and "is_draft" in df_raw.columns:
+    if "surveyor_email" in df_raw.columns:
+        df_drafts = df_raw[(df_raw["is_draft"] == True) & (df_raw["surveyor_email"].str.lower() == curr_user_email)].copy()
+    else:
+        df_drafts = df_raw[df_raw["is_draft"] == True].copy()
+    
+    df_all_completed = df_raw[df_raw["is_draft"] == False].copy()
+else:
+    df_drafts = pd.DataFrame()
+    df_all_completed = df_raw.copy()
+
+# Count submissions for current user vs total collective database
+my_submissions_count = 0
+if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
+    my_submissions_count = int((df_all_completed["surveyor_email"].str.lower() == curr_user_email).sum())
+total_submissions_count = len(df_all_completed)
+
+# Sidebar: Account Data Scope
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Account Data Scope")
 
-curr_user_email = str(st.session_state.get("user_email", "")).strip().lower()
+scope_opt_my = f"👤 My Submissions Only ({my_submissions_count})"
+scope_opt_all = f"🌐 All Team Data & Past Accounts ({total_submissions_count})"
+scope_options = [scope_opt_my, scope_opt_all]
 
-account_scope = st.sidebar.radio(
+# If this account has 0 submissions and there is past data in database, default to All Team Data so old ID data is visible!
+default_scope_idx = 1 if (my_submissions_count == 0 and total_submissions_count > 0) else 0
+
+selected_scope_raw = st.sidebar.radio(
     "Data Scope:",
-    ["👤 My Submissions Only", "🌐 All Team Data (Combined)"],
-    index=0,
-    help="Default 'My Submissions Only' keeps your workspace isolated to your account. Switch to 'All Team Data' to view collective data across all enumerators."
+    scope_options,
+    index=default_scope_idx,
+    help="Default switches between viewing only your current account's entries or all collective data from past accounts and team enumerators."
 )
+
+account_scope_is_my = (selected_scope_raw == scope_opt_my)
+account_scope = "👤 My Submissions Only" if account_scope_is_my else "🌐 All Team Data (Combined)"
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎚️ Data Source View")
@@ -1004,13 +1041,6 @@ data_source_trigger = st.sidebar.radio(
 if st.sidebar.button("🔄 Refresh Cloud Data", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
-
-# Fetch data from Supabase
-df_raw = fetch_all_responses()
-
-# Collect custom survey templates from cloud
-custom_templates = fetch_survey_templates()
-custom_templates_map = {t["title"].strip(): t for t in custom_templates if t.get("title")}
 
 # Build master Global Survey Switcher options list
 survey_switch_options = ["🏡 Socio-Economic Survey"]
@@ -1047,21 +1077,8 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Active Survey")
 st.sidebar.markdown(f"**Current:** `{active_survey}`")
 
-# Separate drafts from finalized responses
-# CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
-if not df_raw.empty and "is_draft" in df_raw.columns:
-    if "surveyor_email" in df_raw.columns:
-        df_drafts = df_raw[(df_raw["is_draft"] == True) & (df_raw["surveyor_email"].str.lower() == curr_user_email)].copy()
-    else:
-        df_drafts = df_raw[df_raw["is_draft"] == True].copy()
-    
-    df_all_completed = df_raw[df_raw["is_draft"] == False].copy()
-else:
-    df_drafts = pd.DataFrame()
-    df_all_completed = df_raw.copy()
-
 # 1. Apply Account Scope on completed responses:
-if account_scope == "👤 My Submissions Only":
+if account_scope_is_my:
     if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
         df_completed = df_all_completed[df_all_completed["surveyor_email"].str.lower() == curr_user_email].copy()
     else:
@@ -1982,7 +1999,10 @@ with nav_tab2:
     st.caption(f"Active Questionnaire: **{active_survey}** | Source Filter: **{data_source_trigger}** | Scope: **{account_scope}**")
     
     if df_filtered.empty:
-        st.info(f"ℹ️ No records found for '{active_survey}' under the selected filters. Enter records in Tab 1 to populate analytics.")
+        if my_submissions_count == 0 and total_submissions_count > 0 and account_scope_is_my:
+            st.info(f"💡 You have 0 submissions under this login (`{curr_user_email}`). There are **{total_submissions_count}** past submissions in the database. Switch **Data Scope** in the sidebar to **'{scope_opt_all}'** to populate analytics.")
+        else:
+            st.info(f"ℹ️ No records found for '{active_survey}' under the selected filters. Enter records in Tab 1 to populate analytics.")
     else:
         tot_hh = len(df_filtered)
         tot_photos = sum([len(p) for p in df_filtered['photo_urls'] if isinstance(p, list)])
@@ -2224,12 +2244,17 @@ with nav_tab3:
         name='🏙️ Detailed Map (Esri Topo)',
         show=False
     ).add_to(m)
-    folium.TileLayer(
-        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attr='&copy; CARTO',
-        name='🌙 Dark Mode Map (CartoDB Dark)',
-        show=is_dark
-    ).add_to(m)
+
+    if is_dark:
+        # High contrast Dark Mode filter applied directly to OpenStreetMap tiles
+        # 100% Free - Never requires an API key or CARTO registration
+        m.get_root().html.add_child(folium.Element("""
+            <style>
+                .leaflet-tile-pane {
+                    filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+                }
+            </style>
+        """))
 
     # Phone GPS Live Tracking Control
     if LocateControl:
@@ -2318,7 +2343,10 @@ with nav_tab3:
         if valid_coords:
             st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{active_survey}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
         else:
-            st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
+            if my_submissions_count == 0 and total_submissions_count > 0 and account_scope_is_my:
+                st.info(f"💡 You have 0 submissions under this login (`{curr_user_email}`). There are **{total_submissions_count}** past submissions in the database. Switch **Data Scope** in the sidebar to **'{scope_opt_all}'** to display all pins on the map.")
+            else:
+                st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
     with col_gis_info2:
         st.caption("💡 **Tip:** Tap 📍 on top-left to track phone GPS. Toggle 🛰️ Satellite view on top-right.")
 
