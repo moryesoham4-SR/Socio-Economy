@@ -644,31 +644,44 @@ account_scope = st.sidebar.radio(
 # Fetch data from Supabase
 df_raw = fetch_all_responses()
 
-# Collect all available questionnaires (Baseline + user designed templates + existing data)
-all_questionnaires = ["🌐 All Questionnaires", "🏡 Socio-Economic Survey"]
-try:
-    for t in fetch_survey_templates():
-        t_title = t.get("title", "").strip()
-        if t_title and t_title not in all_questionnaires:
-            all_questionnaires.append(t_title)
-except Exception:
-    pass
+# Collect custom survey templates from cloud
+custom_templates = fetch_survey_templates()
+custom_templates_map = {t["title"].strip(): t for t in custom_templates if t.get("title")}
+
+# Build master Global Survey Switcher options list
+survey_switch_options = ["🏡 Socio-Economic Survey"]
+for t_title in custom_templates_map.keys():
+    if t_title not in survey_switch_options:
+        survey_switch_options.append(t_title)
 
 if not df_raw.empty and "survey_name" in df_raw.columns:
     for s_val in df_raw["survey_name"].dropna().unique():
         s_clean = str(s_val).strip()
-        if s_clean and s_clean not in all_questionnaires:
-            all_questionnaires.append(s_clean)
+        if s_clean and s_clean not in survey_switch_options and s_clean != "🏡 Socio-Economic Survey":
+            survey_switch_options.append(s_clean)
 
+if len(custom_templates_map) > 0 or (not df_raw.empty and "survey_name" in df_raw.columns and df_raw["survey_name"].nunique() > 1):
+    survey_switch_options.append("🌐 All Surveys (Combined View)")
+
+# --- Top Header: Global Survey Switcher & Status ---
+col_head1, col_head2 = st.columns([2.3, 1.7])
+with col_head2:
+    active_survey = st.selectbox(
+        "📋 Active Survey / Questionnaire:",
+        survey_switch_options,
+        index=survey_switch_options.index(st.session_state.get("global_active_survey", "🏡 Socio-Economic Survey")) if st.session_state.get("global_active_survey", "🏡 Socio-Economic Survey") in survey_switch_options else 0,
+        key="global_active_survey",
+        help="Global Switcher: switches the survey form in Tab 1, and filters analytics, GIS map markers, photos, and CSV exports across the entire portal."
+    )
+
+with col_head1:
+    st.markdown('<div class="main-title">🏡 Socio-Economic Community Assessment</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title">Active Survey: <b>{active_survey}</b> | Source: <b>{data_source_trigger}</b> | Scope: <b>{account_scope}</b></div>', unsafe_allow_html=True)
+
+# Sidebar indicator
 st.sidebar.markdown("---")
-st.sidebar.subheader("📋 Questionnaire Filter")
-questionnaire_filter = st.sidebar.selectbox(
-    "Filter by Questionnaire:",
-    all_questionnaires,
-    index=0,
-    key="sb_questionnaire_filter",
-    help="Filter analytics, GIS map markers, photo evidence, and CSV exports by questionnaire."
-)
+st.sidebar.subheader("📋 Active Survey")
+st.sidebar.markdown(f"**Current:** `{active_survey}`")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎚️ Data Source View")
@@ -679,6 +692,10 @@ data_source_trigger = st.sidebar.radio(
     ["🌐 All Data (Combined)", "📱 On-Field Data Only", "📋 Google Form Data Only"],
     index=0
 )
+
+if st.sidebar.button("🔄 Refresh Cloud Data", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
 
 # Separate drafts from finalized responses
 # CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
@@ -702,10 +719,11 @@ if account_scope == "👤 My Submissions Only":
 else:
     df_completed = df_all_completed.copy()
 
-# 2. Apply Questionnaire Filter on completed responses:
-if questionnaire_filter != "🌐 All Questionnaires":
+# 2. Apply Global Active Survey Filter on completed responses:
+if active_survey != "🌐 All Surveys (Combined View)":
+    target_survey_name = "🏡 Socio-Economic Survey" if active_survey == "🏡 Socio-Economic Survey" else active_survey
     if not df_completed.empty and "survey_name" in df_completed.columns:
-        df_q_scoped = df_completed[df_completed["survey_name"] == questionnaire_filter].copy()
+        df_q_scoped = df_completed[df_completed["survey_name"] == target_survey_name].copy()
     else:
         df_q_scoped = pd.DataFrame()
 else:
@@ -722,20 +740,12 @@ if not df_q_scoped.empty and "source_type" in df_q_scoped.columns:
 else:
     df_filtered = df_q_scoped.copy()
 
-# Header Display
-col_head1, col_head2 = st.columns([3, 1.2])
-with col_head1:
-    st.markdown('<div class="main-title">🏡 Socio-Economic Community Assessment</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-title">Survey: <b>{questionnaire_filter}</b> | Filter: <b>{data_source_trigger}</b> | Scope: <b>{account_scope}</b></div>', unsafe_allow_html=True)
-with col_head2:
-    st.write("")
-    if st.button("🔄 Refresh Cloud Data", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+# Tab 1 label based on active survey
+tab1_label = "📝 Fill Household Survey" if (active_survey == "🏡 Socio-Economic Survey" or active_survey.startswith("🌐")) else f"📝 Fill Survey: {active_survey}"
 
 # --- Main App Navigation Tabs ---
 nav_tab1, nav_tab2, nav_tab3, nav_tab4, nav_tab5, nav_tab6 = st.tabs([
-    "📝 Fill Household Survey",
+    tab1_label,
     "📊 Analytics & Indicators",
     "🗺️ Geospatial / GIS Mapping",
     "📸 Photo Evidence Gallery",
@@ -927,42 +937,7 @@ def render_dynamic_custom_survey(chosen_template, form_key_prefix="runner"):
 # TAB 1: SURVEY ENTRY (ON-FIELD & GOOGLE FORM DATA CAPTURE)
 # ==============================================================================
 with nav_tab1:
-
-    available_templates = fetch_survey_templates()
-    
-    survey_catalog = {"🏡 Socio-Economic Household Survey (Baseline)": None}
-    for t in available_templates:
-        survey_catalog[f"📋 {t['title']} ({len(t.get('questions', []))} questions)"] = t
-
-    survey_options = list(survey_catalog.keys())
-
-    # Switcher banner on the first page
-    col_sel_s1, col_sel_s2 = st.columns([3, 1.2])
-    with col_sel_s1:
-        if len(survey_options) <= 3:
-            active_survey_name = st.radio(
-                "📋 Choose Survey Questionnaire to Fill:",
-                survey_options,
-                horizontal=True,
-                index=0,
-                key="t1_active_survey_radio",
-                help="Switch between the baseline Socio-Economic Survey and any custom surveys designed by you or your team."
-            )
-        else:
-            active_survey_name = st.selectbox(
-                "📋 Choose Survey Questionnaire to Fill:",
-                survey_options,
-                index=0,
-                key="t1_active_survey_select",
-                help="Switch between the baseline Socio-Economic Survey and any custom surveys designed by you or your team."
-            )
-    with col_sel_s2:
-        st.write("")
-        st.caption("✨ Need a different survey? Build it in **'🛠️ Survey Builder'**.")
-
-    st.markdown("---")
-
-    chosen_custom_tmpl = survey_catalog[active_survey_name]
+    chosen_custom_tmpl = custom_templates_map.get(active_survey)
 
     if chosen_custom_tmpl is not None:
         render_dynamic_custom_survey(chosen_custom_tmpl, form_key_prefix="t1_custom")
@@ -1643,11 +1618,11 @@ with nav_tab1:
 # TAB 2: ANALYTICS & SOCIO-ECONOMIC INDICATORS
 # ==============================================================================
 with nav_tab2:
-    st.subheader(f"📊 Survey Analytics & Indicators: {questionnaire_filter}")
-    st.caption(f"Active Questionnaire: **{questionnaire_filter}** | Source Filter: **{data_source_trigger}** | Scope: **{account_scope}**")
+    st.subheader(f"📊 Survey Analytics & Indicators: {active_survey}")
+    st.caption(f"Active Questionnaire: **{active_survey}** | Source Filter: **{data_source_trigger}** | Scope: **{account_scope}**")
     
     if df_filtered.empty:
-        st.info(f"ℹ️ No records found for '{questionnaire_filter}' under the selected filters. Enter records in Tab 1 to populate analytics.")
+        st.info(f"ℹ️ No records found for '{active_survey}' under the selected filters. Enter records in Tab 1 to populate analytics.")
     else:
         tot_hh = len(df_filtered)
         tot_photos = sum([len(p) for p in df_filtered['photo_urls'] if isinstance(p, list)])
@@ -1659,12 +1634,12 @@ with nav_tab2:
         col_m1.metric("Responses in View", tot_hh)
         col_m2.metric("Photos Uploaded", tot_photos)
         col_m3.metric("GPS Tagged Rate", f"{gps_rate:.1f}%")
-        col_m4.metric("Questionnaire Filter", questionnaire_filter if questionnaire_filter != "🌐 All Questionnaires" else f"{df_filtered['survey_name'].nunique()} Surveys")
+        col_m4.metric("Active Survey", active_survey if not active_survey.startswith("🌐") else f"{df_filtered['survey_name'].nunique()} Surveys")
 
         st.divider()
 
-        # CASE 1: All Questionnaires Overview
-        if questionnaire_filter == "🌐 All Questionnaires":
+        # CASE 1: All Questionnaires Combined Overview
+        if active_survey.startswith("🌐"):
             st.markdown("### 📋 Submissions by Questionnaire")
             q_counts = df_filtered["survey_name"].value_counts().reset_index()
             q_counts.columns = ["Questionnaire", "Responses"]
@@ -1700,8 +1675,8 @@ with nav_tab2:
                     st.plotly_chart(fig_house, use_container_width=True)
 
         # CASE 2: Specific Custom Survey Selected
-        elif questionnaire_filter != "🏡 Socio-Economic Survey":
-            st.markdown(f"### 📋 Question-by-Question Analytics: {questionnaire_filter}")
+        elif active_survey != "🏡 Socio-Economic Survey":
+            st.markdown(f"### 📋 Question-by-Question Analytics: {active_survey}")
             all_payloads = [r.get("custom_payload", {}) for _, r in df_filtered.iterrows() if isinstance(r.get("custom_payload"), dict)]
             
             all_q_keys = []
@@ -1711,7 +1686,7 @@ with nav_tab2:
                         all_q_keys.append(k)
 
             if not all_q_keys:
-                st.info(f"ℹ️ No custom questions detected yet for '{questionnaire_filter}'.")
+                st.info(f"ℹ️ No custom questions detected yet for '{active_survey}'.")
             else:
                 for q_title in all_q_keys:
                     q_vals = []
@@ -1821,7 +1796,7 @@ with nav_tab2:
 # TAB 3: GEOSPATIAL / GIS MAPPING
 # ==============================================================================
 with nav_tab3:
-    st.subheader(f"🗺️ GIS Mapping & Ground-Truth: {questionnaire_filter}")
+    st.subheader(f"🗺️ GIS Mapping & Ground-Truth: {active_survey}")
     st.caption("Interactive GIS map with direct phone location detection, satellite imagery, household pins, and manual coordinate search.")
 
     def parse_gps(notes):
@@ -1975,7 +1950,7 @@ with nav_tab3:
     col_gis_info1, col_gis_info2 = st.columns([2, 1])
     with col_gis_info1:
         if valid_coords:
-            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{questionnaire_filter}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
+            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{active_survey}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
         else:
             st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
     with col_gis_info2:
@@ -1985,7 +1960,7 @@ with nav_tab3:
 # TAB 4: PHOTO EVIDENCE GALLERY
 # ==============================================================================
 with nav_tab4:
-    st.subheader(f"📸 Field Evidence Photo Gallery: {questionnaire_filter}")
+    st.subheader(f"📸 Field Evidence Photo Gallery: {active_survey}")
     st.caption("Photos retrieved live from your Supabase Storage bucket (`survey-photos`).")
 
     if not df_filtered.empty:
@@ -2067,7 +2042,7 @@ with nav_tab5:
                         st.rerun()
 
     with t5_completed:
-        st.markdown(f"### Submissions Table: **{questionnaire_filter}** ({data_source_trigger})")
+        st.markdown(f"### Submissions Table: **{active_survey}** ({data_source_trigger})")
         if not df_filtered.empty:
             # Expand custom questions into real columns if custom payload exists
             df_display = df_filtered.copy()
@@ -2086,9 +2061,9 @@ with nav_tab5:
             col_dl1, col_dl2 = st.columns([1.5, 3])
             with col_dl1:
                 csv_data = df_display.to_csv(index=False).encode('utf-8')
-                slug_name = re.sub(r'[^a-zA-Z0-9]', '_', questionnaire_filter).lower().strip('_')
+                slug_name = re.sub(r'[^a-zA-Z0-9]', '_', active_survey).lower().strip('_')
                 st.download_button(
-                    label=f"📥 Download ({questionnaire_filter}) as CSV",
+                    label=f"📥 Download ({active_survey}) as CSV",
                     data=csv_data,
                     file_name=f"survey_data_{slug_name}_{data_source_trigger.split()[1].lower()}.csv",
                     mime="text/csv",
