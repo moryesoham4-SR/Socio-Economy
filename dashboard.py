@@ -641,6 +641,20 @@ account_scope = st.sidebar.radio(
     help="Default 'My Submissions Only' keeps your workspace isolated to your account. Switch to 'All Team Data' to view collective data across all enumerators."
 )
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎚️ Data Source View")
+
+# TRIGGER BUTTON / SELECTOR for Google Form vs On-Field Data
+data_source_trigger = st.sidebar.radio(
+    "Select Source Filter:",
+    ["🌐 All Data (Combined)", "📱 On-Field Data Only", "📋 Google Form Data Only"],
+    index=0
+)
+
+if st.sidebar.button("🔄 Refresh Cloud Data", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
+
 # Fetch data from Supabase
 df_raw = fetch_all_responses()
 
@@ -682,20 +696,6 @@ with col_head1:
 st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Active Survey")
 st.sidebar.markdown(f"**Current:** `{active_survey}`")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎚️ Data Source View")
-
-# TRIGGER BUTTON / SELECTOR for Google Form vs On-Field Data
-data_source_trigger = st.sidebar.radio(
-    "Select Source Filter:",
-    ["🌐 All Data (Combined)", "📱 On-Field Data Only", "📋 Google Form Data Only"],
-    index=0
-)
-
-if st.sidebar.button("🔄 Refresh Cloud Data", use_container_width=True):
-    st.cache_data.clear()
-    st.rerun()
 
 # Separate drafts from finalized responses
 # CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
