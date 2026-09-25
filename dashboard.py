@@ -477,10 +477,29 @@ def fetch_all_responses():
                         return em
                     return "legacy / shared"
 
+                def extract_survey_name(row):
+                    notes = str(row.get("surveyor_notes", ""))
+                    m = re.search(r'\[SURVEY_TITLE:\s*([^\]]+)\]', notes)
+                    if m:
+                        return m.group(1).strip()
+                    return "🏡 Socio-Economic Survey"
+
+                def extract_custom_payload(row):
+                    notes = str(row.get("surveyor_notes", ""))
+                    m = re.search(r'\[CUSTOM_PAYLOAD:\s*({.*?})\s*\]', notes, re.DOTALL)
+                    if m:
+                        try:
+                            return json.loads(m.group(1))
+                        except Exception:
+                            return {}
+                    return {}
+
                 df["source_type"] = df.apply(extract_source, axis=1)
                 df["is_draft"] = df.apply(extract_draft_status, axis=1)
                 df["gps_coordinates"] = df.apply(extract_gps_str, axis=1)
                 df["surveyor_email"] = df.apply(extract_surveyor, axis=1)
+                df["survey_name"] = df.apply(extract_survey_name, axis=1)
+                df["custom_payload"] = df.apply(extract_custom_payload, axis=1)
 
                 # Standardize column naming: primary_occupation -> household_main_occupation
                 if "primary_occupation" in df.columns:
@@ -622,6 +641,35 @@ account_scope = st.sidebar.radio(
     help="Default 'My Submissions Only' keeps your workspace isolated to your account. Switch to 'All Team Data' to view collective data across all enumerators."
 )
 
+# Fetch data from Supabase
+df_raw = fetch_all_responses()
+
+# Collect all available questionnaires (Baseline + user designed templates + existing data)
+all_questionnaires = ["🌐 All Questionnaires", "🏡 Socio-Economic Survey"]
+try:
+    for t in fetch_survey_templates():
+        t_title = t.get("title", "").strip()
+        if t_title and t_title not in all_questionnaires:
+            all_questionnaires.append(t_title)
+except Exception:
+    pass
+
+if not df_raw.empty and "survey_name" in df_raw.columns:
+    for s_val in df_raw["survey_name"].dropna().unique():
+        s_clean = str(s_val).strip()
+        if s_clean and s_clean not in all_questionnaires:
+            all_questionnaires.append(s_clean)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📋 Questionnaire Filter")
+questionnaire_filter = st.sidebar.selectbox(
+    "Filter by Questionnaire:",
+    all_questionnaires,
+    index=0,
+    key="sb_questionnaire_filter",
+    help="Filter analytics, GIS map markers, photo evidence, and CSV exports by questionnaire."
+)
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎚️ Data Source View")
 
@@ -631,9 +679,6 @@ data_source_trigger = st.sidebar.radio(
     ["🌐 All Data (Combined)", "📱 On-Field Data Only", "📋 Google Form Data Only"],
     index=0
 )
-
-# Fetch data from Supabase
-df_raw = fetch_all_responses()
 
 # Separate drafts from finalized responses
 # CRITICAL PRIVACY: Incomplete drafts are ALWAYS strictly private to the active surveyor account!
@@ -648,7 +693,7 @@ else:
     df_drafts = pd.DataFrame()
     df_all_completed = df_raw.copy()
 
-# Apply Account Scope on completed responses:
+# 1. Apply Account Scope on completed responses:
 if account_scope == "👤 My Submissions Only":
     if not df_all_completed.empty and "surveyor_email" in df_all_completed.columns:
         df_completed = df_all_completed[df_all_completed["surveyor_email"].str.lower() == curr_user_email].copy()
@@ -657,22 +702,31 @@ if account_scope == "👤 My Submissions Only":
 else:
     df_completed = df_all_completed.copy()
 
-# Apply Trigger Button Filter on completed responses (so incomplete drafts don't skew analytics)
-if not df_completed.empty and "source_type" in df_completed.columns:
-    if data_source_trigger == "📱 On-Field Data Only":
-        df_filtered = df_completed[df_completed["source_type"] == "On-Field"].copy()
-    elif data_source_trigger == "📋 Google Form Data Only":
-        df_filtered = df_completed[df_completed["source_type"] == "Google Form"].copy()
+# 2. Apply Questionnaire Filter on completed responses:
+if questionnaire_filter != "🌐 All Questionnaires":
+    if not df_completed.empty and "survey_name" in df_completed.columns:
+        df_q_scoped = df_completed[df_completed["survey_name"] == questionnaire_filter].copy()
     else:
-        df_filtered = df_completed.copy()
+        df_q_scoped = pd.DataFrame()
 else:
-    df_filtered = df_completed.copy()
+    df_q_scoped = df_completed.copy()
+
+# 3. Apply Trigger Button Filter on responses:
+if not df_q_scoped.empty and "source_type" in df_q_scoped.columns:
+    if data_source_trigger == "📱 On-Field Data Only":
+        df_filtered = df_q_scoped[df_q_scoped["source_type"] == "On-Field"].copy()
+    elif data_source_trigger == "📋 Google Form Data Only":
+        df_filtered = df_q_scoped[df_q_scoped["source_type"] == "Google Form"].copy()
+    else:
+        df_filtered = df_q_scoped.copy()
+else:
+    df_filtered = df_q_scoped.copy()
 
 # Header Display
 col_head1, col_head2 = st.columns([3, 1.2])
 with col_head1:
     st.markdown('<div class="main-title">🏡 Socio-Economic Community Assessment</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-title">Scope: <b>{account_scope}</b> | Filter: <b>{data_source_trigger}</b> | Surveyor: <b>{st.session_state.user_email}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title">Survey: <b>{questionnaire_filter}</b> | Filter: <b>{data_source_trigger}</b> | Scope: <b>{account_scope}</b></div>', unsafe_allow_html=True)
 with col_head2:
     st.write("")
     if st.button("🔄 Refresh Cloud Data", use_container_width=True):
@@ -1589,77 +1643,185 @@ with nav_tab1:
 # TAB 2: ANALYTICS & SOCIO-ECONOMIC INDICATORS
 # ==============================================================================
 with nav_tab2:
-    st.subheader(f"📊 Socio-Economic Indicators ({data_source_trigger})")
+    st.subheader(f"📊 Survey Analytics & Indicators: {questionnaire_filter}")
+    st.caption(f"Active Questionnaire: **{questionnaire_filter}** | Source Filter: **{data_source_trigger}** | Scope: **{account_scope}**")
     
     if df_filtered.empty:
-        st.info("ℹ️ No records found for the selected filter. Enter records in Tab 1 to populate analytics.")
+        st.info(f"ℹ️ No records found for '{questionnaire_filter}' under the selected filters. Enter records in Tab 1 to populate analytics.")
     else:
         tot_hh = len(df_filtered)
         tot_photos = sum([len(p) for p in df_filtered['photo_urls'] if isinstance(p, list)])
-        elec_rate = (df_filtered['has_electricity'] == 'Yes').mean() * 100 if tot_hh > 0 else 0
-        water_rate = (df_filtered['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
-        toilet_rate = (df_filtered['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
+        gps_count = sum([1 for n in df_filtered['surveyor_notes'] if parse_gps(str(n))[0] is not None])
+        gps_rate = (gps_count / tot_hh * 100) if tot_hh > 0 else 0
 
-        # Mobile-friendly 2-row layout
-        row1_c1, row1_c2 = st.columns(2)
-        row1_c1.metric("Responses in View", tot_hh)
-        row1_c2.metric("Photos Uploaded", tot_photos)
-
-        row2_c1, row2_c2, row2_c3 = st.columns(3)
-        row2_c1.metric("Electricity", f"{elec_rate:.1f}%")
-        row2_c2.metric("Piped Water", f"{water_rate:.1f}%")
-        row2_c3.metric("Sanitation", f"{toilet_rate:.1f}%")
+        # KPI Metrics Row
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Responses in View", tot_hh)
+        col_m2.metric("Photos Uploaded", tot_photos)
+        col_m3.metric("GPS Tagged Rate", f"{gps_rate:.1f}%")
+        col_m4.metric("Questionnaire Filter", questionnaire_filter if questionnaire_filter != "🌐 All Questionnaires" else f"{df_filtered['survey_name'].nunique()} Surveys")
 
         st.divider()
 
-        ca1, ca2 = st.columns(2)
-        with ca1:
-            st.subheader("Monthly Household Income Distribution")
-            inc_counts = df_filtered['monthly_income'].value_counts().reset_index()
-            inc_counts.columns = ['Income Bracket', 'Households']
-            fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues')
-            fig_inc.update_layout(xaxis_tickangle=-30)
-            st.plotly_chart(fig_inc, use_container_width=True)
+        # CASE 1: All Questionnaires Overview
+        if questionnaire_filter == "🌐 All Questionnaires":
+            st.markdown("### 📋 Submissions by Questionnaire")
+            q_counts = df_filtered["survey_name"].value_counts().reset_index()
+            q_counts.columns = ["Questionnaire", "Responses"]
+            fig_q_dist = px.bar(q_counts, x="Questionnaire", y="Responses", color="Responses", color_continuous_scale="Blues", text="Responses")
+            st.plotly_chart(fig_q_dist, use_container_width=True)
 
-        with ca2:
-            st.subheader("House Structural Types")
-            house_counts = df_filtered['house_type'].value_counts().reset_index()
-            house_counts.columns = ['House Type', 'Count']
-            fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2)
-            st.plotly_chart(fig_house, use_container_width=True)
+            # Check if socio-economic baseline responses exist to show community indicators
+            df_socio = df_filtered[df_filtered["survey_name"] == "🏡 Socio-Economic Survey"]
+            if not df_socio.empty:
+                st.markdown("---")
+                st.markdown("### 🏡 Baseline Socio-Economic Survey Indicators")
+                s_tot = len(df_socio)
+                e_r = (df_socio['has_electricity'] == 'Yes').mean() * 100 if s_tot > 0 else 0
+                w_r = (df_socio['drinking_water_source'] == 'Tap water').mean() * 100 if s_tot > 0 else 0
+                t_r = (df_socio['toilet_access'] == 'Private toilet').mean() * 100 if s_tot > 0 else 0
 
-        ca3, ca4 = st.columns(2)
-        with ca3:
-            st.subheader("Household Main Occupations")
-            occ_col = 'household_main_occupation' if 'household_main_occupation' in df_filtered.columns else 'primary_occupation'
-            occ_counts = df_filtered[occ_col].value_counts().reset_index()
-            occ_counts.columns = ['Occupation', 'Count']
-            fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal')
-            st.plotly_chart(fig_occ, use_container_width=True)
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("Electricity Access", f"{e_r:.1f}%")
+                sc2.metric("Piped Water Access", f"{w_r:.1f}%")
+                sc3.metric("Private Toilet Sanitation", f"{t_r:.1f}%")
 
-        with ca4:
-            st.subheader("Public Services Quality Ratings (1 to 5)")
-            services = {
-                'rating_education': 'Education',
-                'rating_healthcare': 'Healthcare',
-                'rating_transportation': 'Transport',
-                'rating_banking': 'Banking',
-                'rating_markets': 'Markets'
-            }
-            avg_ratings = []
-            for col_name, srv_label in services.items():
-                if col_name in df_filtered.columns:
-                    val = pd.to_numeric(df_filtered[col_name], errors='coerce').mean()
-                    avg_ratings.append({"Service": srv_label, "Avg Rating": round(val, 2)})
-            df_srv = pd.DataFrame(avg_ratings)
-            fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating')
-            st.plotly_chart(fig_srv, use_container_width=True)
+                ca1, ca2 = st.columns(2)
+                with ca1:
+                    inc_counts = df_socio['monthly_income'].value_counts().reset_index()
+                    inc_counts.columns = ['Income Bracket', 'Households']
+                    fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', title="Monthly Household Income")
+                    fig_inc.update_layout(xaxis_tickangle=-30)
+                    st.plotly_chart(fig_inc, use_container_width=True)
+                with ca2:
+                    house_counts = df_socio['house_type'].value_counts().reset_index()
+                    house_counts.columns = ['House Type', 'Count']
+                    fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, title="House Structural Types")
+                    st.plotly_chart(fig_house, use_container_width=True)
+
+        # CASE 2: Specific Custom Survey Selected
+        elif questionnaire_filter != "🏡 Socio-Economic Survey":
+            st.markdown(f"### 📋 Question-by-Question Analytics: {questionnaire_filter}")
+            all_payloads = [r.get("custom_payload", {}) for _, r in df_filtered.iterrows() if isinstance(r.get("custom_payload"), dict)]
+            
+            all_q_keys = []
+            for p in all_payloads:
+                for k in p.keys():
+                    if k not in all_q_keys:
+                        all_q_keys.append(k)
+
+            if not all_q_keys:
+                st.info(f"ℹ️ No custom questions detected yet for '{questionnaire_filter}'.")
+            else:
+                for q_title in all_q_keys:
+                    q_vals = []
+                    for p in all_payloads:
+                        val = p.get(q_title)
+                        if val is not None and val != "":
+                            q_vals.append(val)
+                    
+                    if not q_vals:
+                        continue
+
+                    is_multichoice = any(isinstance(v, list) for v in q_vals)
+                    is_numeric = not is_multichoice and all(isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit()) for v in q_vals)
+
+                    with st.expander(f"📊 Question: **{q_title}** ({len(q_vals)} responses)", expanded=True):
+                        if is_multichoice:
+                            flat_opts = []
+                            for v in q_vals:
+                                if isinstance(v, list):
+                                    flat_opts.extend([str(x).strip() for x in v if str(x).strip()])
+                                else:
+                                    flat_opts.append(str(v).strip())
+                            cnt_df = pd.Series(flat_opts).value_counts().reset_index()
+                            cnt_df.columns = ["Option Selected", "Count"]
+                            fig_mc = px.bar(cnt_df, x="Option Selected", y="Count", color="Count", color_continuous_scale="Teal", text="Count")
+                            st.plotly_chart(fig_mc, use_container_width=True)
+                        elif is_numeric:
+                            num_vals = [float(v) for v in q_vals]
+                            col_n1, col_n2, col_n3 = st.columns(3)
+                            col_n1.metric("Average", f"{sum(num_vals)/len(num_vals):.2f}")
+                            col_n2.metric("Min", f"{min(num_vals):.1f}")
+                            col_n3.metric("Max", f"{max(num_vals):.1f}")
+                            num_df = pd.Series(num_vals).value_counts().reset_index()
+                            num_df.columns = ["Value / Rating", "Responses"]
+                            fig_num = px.bar(num_df, x="Value / Rating", y="Responses", color="Responses", color_continuous_scale="Viridis", text="Responses")
+                            st.plotly_chart(fig_num, use_container_width=True)
+                        elif len(set([str(v) for v in q_vals])) <= 12:
+                            cat_df = pd.Series([str(v) for v in q_vals]).value_counts().reset_index()
+                            cat_df.columns = ["Choice", "Count"]
+                            col_c1, col_c2 = st.columns([1.5, 1])
+                            with col_c1:
+                                fig_cat = px.bar(cat_df, x="Choice", y="Count", color="Count", color_continuous_scale="Blues", text="Count")
+                                st.plotly_chart(fig_cat, use_container_width=True)
+                            with col_c2:
+                                fig_pie = px.pie(cat_df, names="Choice", values="Count", hole=0.35, color_discrete_sequence=px.colors.qualitative.Pastel)
+                                st.plotly_chart(fig_pie, use_container_width=True)
+                        else:
+                            st.dataframe(pd.DataFrame({"Submitted Responses": [str(v) for v in q_vals]}), use_container_width=True)
+
+        # CASE 3: Socio-Economic Survey Selected
+        else:
+            elec_rate = (df_filtered['has_electricity'] == 'Yes').mean() * 100 if tot_hh > 0 else 0
+            water_rate = (df_filtered['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
+            toilet_rate = (df_filtered['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
+
+            row2_c1, row2_c2, row2_c3 = st.columns(3)
+            row2_c1.metric("Electricity Access", f"{elec_rate:.1f}%")
+            row2_c2.metric("Piped Water Access", f"{water_rate:.1f}%")
+            row2_c3.metric("Private Toilet Sanitation", f"{toilet_rate:.1f}%")
+
+            st.divider()
+
+            ca1, ca2 = st.columns(2)
+            with ca1:
+                st.subheader("Monthly Household Income Distribution")
+                inc_counts = df_filtered['monthly_income'].value_counts().reset_index()
+                inc_counts.columns = ['Income Bracket', 'Households']
+                fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues')
+                fig_inc.update_layout(xaxis_tickangle=-30)
+                st.plotly_chart(fig_inc, use_container_width=True)
+
+            with ca2:
+                st.subheader("House Structural Types")
+                house_counts = df_filtered['house_type'].value_counts().reset_index()
+                house_counts.columns = ['House Type', 'Count']
+                fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2)
+                st.plotly_chart(fig_house, use_container_width=True)
+
+            ca3, ca4 = st.columns(2)
+            with ca3:
+                st.subheader("Household Main Occupations")
+                occ_col = 'household_main_occupation' if 'household_main_occupation' in df_filtered.columns else 'primary_occupation'
+                occ_counts = df_filtered[occ_col].value_counts().reset_index()
+                occ_counts.columns = ['Occupation', 'Count']
+                fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal')
+                st.plotly_chart(fig_occ, use_container_width=True)
+
+            with ca4:
+                st.subheader("Public Services Quality Ratings (1 to 5)")
+                services = {
+                    'rating_education': 'Education',
+                    'rating_healthcare': 'Healthcare',
+                    'rating_transportation': 'Transport',
+                    'rating_banking': 'Banking',
+                    'rating_markets': 'Markets'
+                }
+                avg_ratings = []
+                for col_name, srv_label in services.items():
+                    if col_name in df_filtered.columns:
+                        val = pd.to_numeric(df_filtered[col_name], errors='coerce').mean()
+                        avg_ratings.append({"Service": srv_label, "Avg Rating": round(val, 2)})
+                df_srv = pd.DataFrame(avg_ratings)
+                fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating')
+                st.plotly_chart(fig_srv, use_container_width=True)
 
 # ==============================================================================
 # TAB 3: GEOSPATIAL / GIS MAPPING
 # ==============================================================================
 with nav_tab3:
-    st.subheader(f"🗺️ GIS Mapping & Household Ground-Truth ({data_source_trigger})")
+    st.subheader(f"🗺️ GIS Mapping & Ground-Truth: {questionnaire_filter}")
     st.caption("Interactive GIS map with direct phone location detection, satellite imagery, household pins, and manual coordinate search.")
 
     def parse_gps(notes):
@@ -1746,25 +1908,42 @@ with nav_tab3:
 
     # Plot Household survey markers
     for lat, lon, row in valid_coords:
+        s_name = str(row.get("survey_name", "🏡 Socio-Economic Survey"))
+        is_custom = s_name != "🏡 Socio-Economic Survey"
         is_gform = row.get("source_type") == "Google Form"
-        marker_color = "green" if is_gform else "blue"
-        occ_display = row.get('household_main_occupation', row.get('primary_occupation', 'N/A'))
+        
+        if is_custom:
+            marker_color = "purple"
+            icon_symbol = "clipboard"
+        elif is_gform:
+            marker_color = "green"
+            icon_symbol = "file-alt"
+        else:
+            marker_color = "blue"
+            icon_symbol = "home"
+
         popup_html = f"""
-        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; width: 220px; line-height: 1.4;">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; width: 230px; line-height: 1.4;">
             <b style="color: #2563eb; font-size: 13px;">{row['full_name']}</b><br>
+            <span style="display:inline-block; margin-top:2px; font-size:10px; background:#eff6ff; color:#1d4ed8; font-weight:700; padding:1px 6px; border-radius:3px;">
+                📋 {s_name}
+            </span><br>
             <span style="color: #64748b;">📍 {row['locality']} ({row.get('source_type', 'On-Field')})</span><hr style="margin: 5px 0;">
-            <b>Occupation:</b> {occ_display}<br>
-            <b>House:</b> {row['house_type']}<br>
-            <b>Income:</b> {row['monthly_income']}<br>
-            <b>Water:</b> {row['drinking_water_source']}<br>
-            <b>GPS:</b> {lat:.6f}, {lon:.6f}
-        </div>
         """
+        if is_custom and isinstance(row.get("custom_payload"), dict) and row.get("custom_payload"):
+            for q_k, a_v in list(row["custom_payload"].items())[:3]:
+                popup_html += f"<b>{q_k[:18]}:</b> {str(a_v)[:25]}<br>"
+        else:
+            occ_display = row.get('household_main_occupation', row.get('primary_occupation', 'N/A'))
+            popup_html += f"<b>Occupation:</b> {occ_display}<br><b>House:</b> {row['house_type']}<br><b>Income:</b> {row['monthly_income']}<br>"
+        
+        popup_html += f"<b>GPS:</b> {lat:.6f}, {lon:.6f}</div>"
+
         folium.Marker(
             location=[lat, lon],
-            popup=folium.Popup(popup_html, max_width=260),
-            tooltip=f"{row['full_name']} — {row['locality']}",
-            icon=folium.Icon(color=marker_color, icon="home", prefix="fa")
+            popup=folium.Popup(popup_html, max_width=270),
+            tooltip=f"{row['full_name']} — {row['locality']} [{s_name}]",
+            icon=folium.Icon(color=marker_color, icon=icon_symbol, prefix="fa")
         ).add_to(m)
 
     # Plot Manual Location Pin if searched
@@ -1796,7 +1975,7 @@ with nav_tab3:
     col_gis_info1, col_gis_info2 = st.columns([2, 1])
     with col_gis_info1:
         if valid_coords:
-            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged household profiles. 🔵 Blue = On-Field Survey | 🟢 Green = Google Form import | 🔴 Red = Manual Pin.")
+            st.caption(f"Showing **{len(valid_coords)}** GPS-tagged profiles for **{questionnaire_filter}**. 🔵 Blue = Socio-Economic (On-Field) | 🟢 Green = Google Form | 🟣 Purple = Custom Questionnaires | 🔴 Red = Manual Pin.")
         else:
             st.info("ℹ️ No GPS-tagged household records found yet in this filter. Tap the **📍 crosshair button** on the map to find your phone location, or click anywhere on the map to inspect coordinates.")
     with col_gis_info2:
@@ -1806,7 +1985,7 @@ with nav_tab3:
 # TAB 4: PHOTO EVIDENCE GALLERY
 # ==============================================================================
 with nav_tab4:
-    st.subheader(f"📸 Field Evidence Photo Gallery ({data_source_trigger})")
+    st.subheader(f"📸 Field Evidence Photo Gallery: {questionnaire_filter}")
     st.caption("Photos retrieved live from your Supabase Storage bucket (`survey-photos`).")
 
     if not df_filtered.empty:
@@ -1815,7 +1994,7 @@ with nav_tab4:
             st.info("No photos found in the filtered records.")
         else:
             for idx, row in records_with_photos.iterrows():
-                with st.expander(f"📷 {row['full_name']} — {row['locality']} ({len(row['photo_urls'])} photos | {row.get('source_type', 'On-Field')})", expanded=True):
+                with st.expander(f"📷 {row['full_name']} — {row['locality']} ({len(row['photo_urls'])} photos | 📋 {row.get('survey_name', 'Socio-Economic')})", expanded=True):
                     cols = st.columns(min(len(row['photo_urls']), 4))
                     for i, p_url in enumerate(row['photo_urls']):
                         with cols[i % 4]:
@@ -1888,18 +2067,30 @@ with nav_tab5:
                         st.rerun()
 
     with t5_completed:
-        st.markdown(f"### Filtered View: **{data_source_trigger}**")
+        st.markdown(f"### Submissions Table: **{questionnaire_filter}** ({data_source_trigger})")
         if not df_filtered.empty:
-            st.dataframe(df_filtered, use_container_width=True)
+            # Expand custom questions into real columns if custom payload exists
+            df_display = df_filtered.copy()
+            if "custom_payload" in df_display.columns:
+                payload_rows = []
+                for _, r in df_display.iterrows():
+                    payload_rows.append(r.get("custom_payload") if isinstance(r.get("custom_payload"), dict) else {})
+                df_custom_cols = pd.DataFrame(payload_rows, index=df_display.index)
+                if not df_custom_cols.empty and len(df_custom_cols.columns) > 0:
+                    cols_to_drop = [c for c in ["custom_payload"] if c in df_display.columns]
+                    df_display = pd.concat([df_display.drop(columns=cols_to_drop), df_custom_cols], axis=1)
+
+            st.dataframe(df_display, use_container_width=True)
             
             # CSV Export
             col_dl1, col_dl2 = st.columns([1.5, 3])
             with col_dl1:
-                csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+                csv_data = df_display.to_csv(index=False).encode('utf-8')
+                slug_name = re.sub(r'[^a-zA-Z0-9]', '_', questionnaire_filter).lower().strip('_')
                 st.download_button(
-                    label=f"📥 Download ({data_source_trigger}) as CSV",
+                    label=f"📥 Download ({questionnaire_filter}) as CSV",
                     data=csv_data,
-                    file_name=f"survey_data_{data_source_trigger.split()[1].lower()}.csv",
+                    file_name=f"survey_data_{slug_name}_{data_source_trigger.split()[1].lower()}.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
