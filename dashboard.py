@@ -32,17 +32,29 @@ if "theme_mode" not in st.session_state:
 is_dark = st.session_state.theme_mode == "🌙 Dark"
 plotly_template = "plotly_dark" if is_dark else "plotly_white"
 
+def render_chart(fig):
+    """Render Plotly chart with mobile touch optimization and responsive sizing."""
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"responsive": True, "displayModeBar": False, "scrollZoom": False}
+    )
+
 # --- Theme & Responsive CSS Architecture ---
 # 1. Base Responsive Sizing & Layout (Theme Neutral)
 st.markdown("""
 <style>
-    /* Base Typography & Input Sizing */
+    /* Global Viewport & Touch Optimization */
     html, body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        -webkit-tap-highlight-color: transparent;
     }
     
-    input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput {
-        font-size: 15px !important;
+    /* Interactive Touch Ergonomics */
+    a, button, input, select, textarea, [role="button"], [role="tab"], [role="radio"], [role="checkbox"] {
+        touch-action: manipulation;
     }
 
     /* Common Button Styling */
@@ -63,11 +75,33 @@ st.markdown("""
         box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25) !important;
         font-size: 15px !important;
         font-weight: 700 !important;
+        min-height: 48px !important;
     }
 
     /* Base Container Clearance */
     .block-container {
-        padding-top: 4.75rem !important;
+        padding-top: 4.5rem !important;
+        padding-bottom: max(3.5rem, env(safe-area-inset-bottom, 20px)) !important;
+    }
+
+    /* Responsive DataFrames & Tables */
+    div[data-testid="stDataFrame"], div[data-testid="stTable"] {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* Responsive Folium Map Container */
+    iframe[title="streamlit_folium.st_folium"], .stFolium {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 10px !important;
+    }
+
+    /* Plotly Responsive Overflow */
+    .js-plotly-plot, .plotly {
+        max-width: 100% !important;
+        width: 100% !important;
     }
 
     /* =======================================================
@@ -109,7 +143,7 @@ st.markdown("""
     }
 
     /* =======================================================
-       TABLETS (768px to 1023px)
+       TABLETS & SMALL LAPTOPS (768px to 1023px)
        ======================================================= */
     @media (min-width: 768px) and (max-width: 1023px) {
         .block-container {
@@ -132,6 +166,8 @@ st.markdown("""
         div[data-baseweb="tab-list"] {
             overflow-x: auto !important;
             flex-wrap: nowrap !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: thin !important;
             gap: 0.4rem !important;
             padding-bottom: 0.35rem !important;
             border-bottom: 1.5px solid #e2e8f0 !important;
@@ -142,6 +178,15 @@ st.markdown("""
             white-space: nowrap !important;
             border-radius: 8px !important;
             border: 1px solid #e2e8f0 !important;
+            flex-shrink: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: 0.75rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 calc(50% - 0.75rem) !important;
+            min-width: calc(50% - 0.75rem) !important;
         }
     }
 
@@ -151,49 +196,92 @@ st.markdown("""
     @media (max-width: 767px) {
         .block-container {
             max-width: 100% !important;
-            padding-top: 3.75rem !important;
-            padding-bottom: 4rem !important;
+            padding-top: 3.5rem !important;
+            padding-bottom: max(4rem, env(safe-area-inset-bottom, 24px)) !important;
             padding-left: 0.65rem !important;
             padding-right: 0.65rem !important;
         }
         .main-title {
             font-size: 1.25rem !important;
-            margin-top: 0.35rem !important;
-            line-height: 1.3;
+            margin-top: 0.25rem !important;
+            line-height: 1.25;
         }
         .sub-title {
-            font-size: 0.8rem !important;
-            margin-bottom: 0.75rem;
+            font-size: 0.78rem !important;
+            margin-bottom: 0.65rem;
+            line-height: 1.35;
         }
-        input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput {
-            font-size: 16px !important; /* Prevents auto-zoom on mobile */
+        /* Crucial: 16px font-size prevents mobile Safari/Chrome auto-zoom on field focus */
+        input, select, textarea, .stSelectbox, .stTextInput, .stNumberInput, div[data-baseweb="select"] input {
+            font-size: 16px !important;
         }
         button[kind="primary"], button[kind="secondary"], .stButton > button {
             min-height: 48px !important;
             font-size: 15px !important;
+            width: 100% !important;
         }
+        /* Swipeable horizontal tabs with smooth finger touch scrolling */
         div[data-baseweb="tab-list"] {
-            gap: 0.3rem !important;
+            display: flex !important;
+            gap: 0.35rem !important;
             overflow-x: auto !important;
             flex-wrap: nowrap !important;
             -webkit-overflow-scrolling: touch !important;
-            padding-bottom: 0.4rem !important;
+            scrollbar-width: thin !important;
+            padding-bottom: 0.45rem !important;
             border-bottom: 1.5px solid #e2e8f0 !important;
+        }
+        div[data-baseweb="tab-list"]::-webkit-scrollbar {
+            height: 3px;
+        }
+        div[data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 3px;
         }
         div[data-baseweb="tab"] {
             font-size: 0.8rem !important;
-            padding: 0.45rem 0.65rem !important;
+            padding: 0.5rem 0.75rem !important;
             white-space: nowrap !important;
             border-radius: 8px !important;
             border: 1px solid #e2e8f0 !important;
+            flex-shrink: 0 !important;
         }
+        /* Responsive Column Stacking on Phones: Forms & inputs become full-width readable */
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+            width: 100% !important;
+        }
+        /* Mobile Touch-Friendly Radio Buttons & Checkboxes */
+        div[data-testid="stRadio"] div[role="radiogroup"] {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+        }
+        div[data-testid="stRadio"] label,
+        div[data-testid="stCheckbox"] label {
+            min-height: 40px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            padding: 6px 10px !important;
+            border-radius: 6px !important;
+            touch-action: manipulation !important;
+        }
+        /* Metric Cards on Mobile */
         .stMetric {
-            padding: 0.5rem;
-            border-radius: 8px;
-            margin-bottom: 0.4rem;
+            padding: 0.65rem 0.75rem !important;
+            border-radius: 8px !important;
+            margin-bottom: 0.4rem !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
         }
         div[data-testid="stForm"] {
-            padding: 0.65rem !important;
+            padding: 0.75rem 0.65rem !important;
+            border-radius: 10px !important;
         }
     }
 </style>
@@ -684,53 +772,25 @@ def upload_photo_to_supabase(file_bytes, filename):
         st.warning(f"Photo upload note: {e}")
     return None
 
-def insert_survey_record(record_data):
-    url = f"{SUPABASE_URL}/rest/v1/survey_responses"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-    }
-    data = json.dumps([record_data]).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-def update_survey_record(record_id, updated_data):
-    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
-    headers = {
-        "apikey": SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = json.dumps(updated_data).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="PATCH")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.status in [200, 204]
-
-def delete_survey_record(record_id):
-    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
-    headers = {
-        "apikey": SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SERVICE_ROLE_KEY}"
-    }
-    req = urllib.request.Request(url, headers=headers, method="DELETE")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.status in [200, 204]
+# Pre-compiled high-performance regex patterns
+RE_GPS = re.compile(r'\[GPS:\s*([+-]?\d+\.?\d*),\s*([+-]?\d+\.?\d*)\]')
+RE_SURVEYOR = re.compile(r'\[SURVEYOR:\s*([^\]]+)\]')
+RE_TITLE = re.compile(r'\[SURVEY_TITLE:\s*([^\]]+)\]')
+RE_PAYLOAD = re.compile(r'\[CUSTOM_PAYLOAD:\s*({.*?})\s*\]', re.DOTALL)
 
 def parse_gps(notes):
     if not isinstance(notes, str):
         return None, None
-    match = re.search(r'\[GPS:\s*([+-]?\d+\.?\d*),\s*([+-]?\d+\.?\d*)\]', notes)
+    match = RE_GPS.search(notes)
     if match:
         return float(match.group(1)), float(match.group(2))
     return None, None
 
+@st.cache_data(ttl=60)
 def fetch_survey_templates():
-    """Fetch user-designed custom survey templates from Supabase cloud storage."""
+    """Fetch user-designed custom survey templates from Supabase cloud storage (cached for 60s)."""
     try:
-        url = f"{SUPABASE_URL}/storage/v1/object/public/survey-photos/survey_templates.json?t={int(time.time())}"
+        url = f"{SUPABASE_URL}/storage/v1/object/public/survey-photos/survey_templates.json?t={int(time.time() // 60)}"
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -739,7 +799,7 @@ def fetch_survey_templates():
         return []
 
 def save_survey_templates(templates_list):
-    """Save user-designed custom survey templates list to Supabase cloud storage."""
+    """Save user-designed custom survey templates list to Supabase cloud storage and clear template cache."""
     try:
         url = f"{SUPABASE_URL}/storage/v1/object/survey-photos/survey_templates.json"
         headers = {
@@ -751,13 +811,20 @@ def save_survey_templates(templates_list):
         data = json.dumps({"templates": templates_list}).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status in [200, 201]
+            succ = resp.status in [200, 201]
+            if succ:
+                try:
+                    fetch_survey_templates.clear()
+                except Exception:
+                    pass
+            return succ
     except Exception as e:
         st.error(f"Error saving survey templates: {e}")
         return False
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=20)
 def fetch_all_responses():
+    """Fetch all survey responses with fast single-pass parsing and caching."""
     url = f"{SUPABASE_URL}/rest/v1/survey_responses?select=*&order=created_at.desc"
     headers = {
         "apikey": SUPABASE_KEY,
@@ -768,58 +835,63 @@ def fetch_all_responses():
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             df = pd.DataFrame(data)
-            # Detect source (On-Field vs Google Form)
             if not df.empty:
-                def extract_source(row):
-                    if "data_source" in row and pd.notna(row["data_source"]) and row["data_source"]:
-                        return str(row["data_source"])
-                    notes = str(row.get("surveyor_notes", ""))
-                    if "[SOURCE: Google Form]" in notes or "Google Form" in notes:
-                        return "Google Form"
-                    return "On-Field"
+                sources = []
+                drafts = []
+                gps_strs = []
+                surveyors = []
+                titles = []
+                payloads = []
 
-                def extract_draft_status(row):
-                    notes = str(row.get("surveyor_notes", ""))
-                    name = str(row.get("full_name", ""))
-                    return "[STATUS: DRAFT]" in notes or name.startswith("[DRAFT]")
+                has_data_source = "data_source" in df.columns
+                for _, row in df.iterrows():
+                    notes = str(row.get("surveyor_notes", "") or "")
+                    name = str(row.get("full_name", "") or "")
 
-                def extract_gps_str(row):
-                    notes = str(row.get("surveyor_notes", ""))
-                    lat, lon = parse_gps(notes)
-                    if lat is not None and lon is not None:
-                        return f"{lat:.6f}, {lon:.6f}"
-                    return ""
+                    # 1. Source Detection
+                    if has_data_source and pd.notna(row["data_source"]) and row["data_source"]:
+                        src = str(row["data_source"])
+                    elif "[SOURCE: Google Form]" in notes or "Google Form" in notes:
+                        src = "Google Form"
+                    else:
+                        src = "On-Field"
+                    sources.append(src)
 
-                def extract_surveyor(row):
-                    notes = str(row.get("surveyor_notes", ""))
-                    m = re.search(r'\[SURVEYOR:\s*([^\]]+)\]', notes)
-                    if m:
-                        return m.group(1).strip().lower()
-                    return "legacy / shared"
+                    # 2. Draft Status
+                    is_d = "[STATUS: DRAFT]" in notes or name.startswith("[DRAFT]")
+                    drafts.append(is_d)
 
-                def extract_survey_name(row):
-                    notes = str(row.get("surveyor_notes", ""))
-                    m = re.search(r'\[SURVEY_TITLE:\s*([^\]]+)\]', notes)
-                    if m:
-                        return m.group(1).strip()
-                    return "🏡 Socio-Economic Survey"
+                    # 3. GPS extraction
+                    m_gps = RE_GPS.search(notes)
+                    if m_gps:
+                        gps_strs.append(f"{float(m_gps.group(1)):.6f}, {float(m_gps.group(2)):.6f}")
+                    else:
+                        gps_strs.append("")
 
-                def extract_custom_payload(row):
-                    notes = str(row.get("surveyor_notes", ""))
-                    m = re.search(r'\[CUSTOM_PAYLOAD:\s*({.*?})\s*\]', notes, re.DOTALL)
-                    if m:
+                    # 4. Surveyor Email
+                    m_surv = RE_SURVEYOR.search(notes)
+                    surveyors.append(m_surv.group(1).strip().lower() if m_surv else "legacy / shared")
+
+                    # 5. Survey Title
+                    m_tit = RE_TITLE.search(notes)
+                    titles.append(m_tit.group(1).strip() if m_tit else "🏡 Socio-Economic Survey")
+
+                    # 6. Custom Payload
+                    m_pay = RE_PAYLOAD.search(notes)
+                    if m_pay:
                         try:
-                            return json.loads(m.group(1))
+                            payloads.append(json.loads(m_pay.group(1)))
                         except Exception:
-                            return {}
-                    return {}
+                            payloads.append({})
+                    else:
+                        payloads.append({})
 
-                df["source_type"] = df.apply(extract_source, axis=1)
-                df["is_draft"] = df.apply(extract_draft_status, axis=1)
-                df["gps_coordinates"] = df.apply(extract_gps_str, axis=1)
-                df["surveyor_email"] = df.apply(extract_surveyor, axis=1)
-                df["survey_name"] = df.apply(extract_survey_name, axis=1)
-                df["custom_payload"] = df.apply(extract_custom_payload, axis=1)
+                df["source_type"] = sources
+                df["is_draft"] = drafts
+                df["gps_coordinates"] = gps_strs
+                df["surveyor_email"] = surveyors
+                df["survey_name"] = titles
+                df["custom_payload"] = payloads
 
                 # Standardize column naming: primary_occupation -> household_main_occupation
                 if "primary_occupation" in df.columns:
@@ -830,6 +902,58 @@ def fetch_all_responses():
             return df
     except Exception as e:
         return pd.DataFrame()
+
+def insert_survey_record(record_data):
+    url = f"{SUPABASE_URL}/rest/v1/survey_responses"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    data = json.dumps([record_data]).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        try:
+            fetch_all_responses.clear()
+        except Exception:
+            pass
+        return res
+
+def update_survey_record(record_id, updated_data):
+    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
+    headers = {
+        "apikey": SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = json.dumps(updated_data).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="PATCH")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        succ = resp.status in [200, 204]
+        if succ:
+            try:
+                fetch_all_responses.clear()
+            except Exception:
+                pass
+        return succ
+
+def delete_survey_record(record_id):
+    url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=eq.{record_id}"
+    headers = {
+        "apikey": SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}"
+    }
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        succ = resp.status in [200, 204]
+        if succ:
+            try:
+                fetch_all_responses.clear()
+            except Exception:
+                pass
+        return succ
 
 # ==============================================================================
 # AUTHENTICATION SCREEN (LOGIN PAGE)
@@ -2023,7 +2147,7 @@ with nav_tab2:
             q_counts = df_filtered["survey_name"].value_counts().reset_index()
             q_counts.columns = ["Questionnaire", "Responses"]
             fig_q_dist = px.bar(q_counts, x="Questionnaire", y="Responses", color="Responses", color_continuous_scale="Blues", text="Responses", template=plotly_template)
-            st.plotly_chart(fig_q_dist, use_container_width=True)
+            render_chart(fig_q_dist)
 
             # Check if socio-economic baseline responses exist to show community indicators
             df_socio = df_filtered[df_filtered["survey_name"] == "🏡 Socio-Economic Survey"]
@@ -2046,12 +2170,12 @@ with nav_tab2:
                     inc_counts.columns = ['Income Bracket', 'Households']
                     fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', title="Monthly Household Income", template=plotly_template)
                     fig_inc.update_layout(xaxis_tickangle=-30)
-                    st.plotly_chart(fig_inc, use_container_width=True)
+                    render_chart(fig_inc)
                 with ca2:
                     house_counts = df_socio['house_type'].value_counts().reset_index()
                     house_counts.columns = ['House Type', 'Count']
                     fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, title="House Structural Types", template=plotly_template)
-                    st.plotly_chart(fig_house, use_container_width=True)
+                    render_chart(fig_house)
 
         # CASE 2: Specific Custom Survey Selected
         elif active_survey != "🏡 Socio-Economic Survey":
@@ -2091,7 +2215,7 @@ with nav_tab2:
                             cnt_df = pd.Series(flat_opts).value_counts().reset_index()
                             cnt_df.columns = ["Option Selected", "Count"]
                             fig_mc = px.bar(cnt_df, x="Option Selected", y="Count", color="Count", color_continuous_scale="Teal", text="Count", template=plotly_template)
-                            st.plotly_chart(fig_mc, use_container_width=True)
+                            render_chart(fig_mc)
                         elif is_numeric:
                             num_vals = [float(v) for v in q_vals]
                             col_n1, col_n2, col_n3 = st.columns(3)
@@ -2101,17 +2225,17 @@ with nav_tab2:
                             num_df = pd.Series(num_vals).value_counts().reset_index()
                             num_df.columns = ["Value / Rating", "Responses"]
                             fig_num = px.bar(num_df, x="Value / Rating", y="Responses", color="Responses", color_continuous_scale="Viridis", text="Responses", template=plotly_template)
-                            st.plotly_chart(fig_num, use_container_width=True)
+                            render_chart(fig_num)
                         elif len(set([str(v) for v in q_vals])) <= 12:
                             cat_df = pd.Series([str(v) for v in q_vals]).value_counts().reset_index()
                             cat_df.columns = ["Choice", "Count"]
                             col_c1, col_c2 = st.columns([1.5, 1])
                             with col_c1:
                                 fig_cat = px.bar(cat_df, x="Choice", y="Count", color="Count", color_continuous_scale="Blues", text="Count", template=plotly_template)
-                                st.plotly_chart(fig_cat, use_container_width=True)
+                                render_chart(fig_cat)
                             with col_c2:
                                 fig_pie = px.pie(cat_df, names="Choice", values="Count", hole=0.35, color_discrete_sequence=px.colors.qualitative.Pastel, template=plotly_template)
-                                st.plotly_chart(fig_pie, use_container_width=True)
+                                render_chart(fig_pie)
                         else:
                             st.dataframe(pd.DataFrame({"Submitted Responses": [str(v) for v in q_vals]}), use_container_width=True)
 
@@ -2135,14 +2259,14 @@ with nav_tab2:
                 inc_counts.columns = ['Income Bracket', 'Households']
                 fig_inc = px.bar(inc_counts, x='Income Bracket', y='Households', color='Households', color_continuous_scale='Blues', template=plotly_template)
                 fig_inc.update_layout(xaxis_tickangle=-30)
-                st.plotly_chart(fig_inc, use_container_width=True)
+                render_chart(fig_inc)
 
             with ca2:
                 st.subheader("House Structural Types")
                 house_counts = df_filtered['house_type'].value_counts().reset_index()
                 house_counts.columns = ['House Type', 'Count']
                 fig_house = px.pie(house_counts, names='House Type', values='Count', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2, template=plotly_template)
-                st.plotly_chart(fig_house, use_container_width=True)
+                render_chart(fig_house)
 
             ca3, ca4 = st.columns(2)
             with ca3:
@@ -2151,7 +2275,7 @@ with nav_tab2:
                 occ_counts = df_filtered[occ_col].value_counts().reset_index()
                 occ_counts.columns = ['Occupation', 'Count']
                 fig_occ = px.bar(occ_counts, x='Count', y='Occupation', orientation='h', color='Count', color_continuous_scale='Teal', template=plotly_template)
-                st.plotly_chart(fig_occ, use_container_width=True)
+                render_chart(fig_occ)
 
             with ca4:
                 st.subheader("Public Services Quality Ratings (1 to 5)")
@@ -2169,7 +2293,7 @@ with nav_tab2:
                         avg_ratings.append({"Service": srv_label, "Avg Rating": round(val, 2)})
                 df_srv = pd.DataFrame(avg_ratings)
                 fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating', template=plotly_template)
-                st.plotly_chart(fig_srv, use_container_width=True)
+                render_chart(fig_srv)
 
 # ==============================================================================
 # TAB 3: GEOSPATIAL / GIS MAPPING
@@ -2282,8 +2406,8 @@ with nav_tab3:
         center_lat, center_lon = 19.0760, 72.8777
         zoom_start = 13
 
-    # Build Folium Map with 100% Free, Open Tile Layers (No API Key Required)
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None)
+    # Build Folium Map with 100% Free, Open Tile Layers (Hardware-accelerated canvas for mobile & desktop)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None, prefer_canvas=True, scrollWheelZoom=False)
 
     folium.TileLayer(
         tiles='https://tile.openstreetmap.org/{z}/{x}/{y}.png',
