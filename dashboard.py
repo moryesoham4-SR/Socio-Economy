@@ -2276,6 +2276,14 @@ with nav_tab2:
         col_m3.metric("GPS Tagged Rate", f"{gps_rate:.1f}%")
         col_m4.metric("Active Survey", active_survey if not active_survey.startswith("🌐") else f"{df_filtered['survey_name'].nunique()} Surveys")
 
+        # Report Export Action Bar
+        st.write("")
+        exp_col1, exp_col2 = st.columns([3, 1])
+        with exp_col1:
+            st.markdown("📄 **Executive Analysis Export**: Download this entire analytics view with all KPIs, metric tables, and charts formatted for offline sharing or printing.")
+        with exp_col2:
+            export_clicked = st.button("📥 Export Full Report", key="btn_export_analytics_report", help="Generate full offline HTML report with charts and print-to-PDF button", use_container_width=True)
+
         st.divider()
 
         # CASE 1: All Questionnaires Combined Overview
@@ -2686,6 +2694,418 @@ with nav_tab2:
                 df_srv = pd.DataFrame(avg_ratings)
                 fig_srv = px.bar(df_srv, x='Service', y='Avg Rating', range_y=[0, 5], color='Avg Rating', color_continuous_scale='Viridis', text='Avg Rating', template=plotly_template)
                 render_chart(fig_srv)
+
+        # ----------------------------------------------------------------------
+        # EXECUTIVE REPORT GENERATION HANDLER (Interactive HTML + Print to PDF)
+        # ----------------------------------------------------------------------
+        if export_clicked:
+            with st.spinner("⏳ Compiling comprehensive executive report with all charts and KPIs..."):
+                now_str = time.strftime("%d %B %Y, %I:%M %p")
+                
+                # Render standalone HTML fragments for all available Plotly figures
+                def chart_to_html(fig_obj):
+                    if fig_obj is None:
+                        return ""
+                    try:
+                        # Copy and ensure light clean theme for universal PDF print legibility
+                        f_copy = fig_obj
+                        return f_copy.to_html(full_html=False, include_plotlyjs=False)
+                    except Exception as err:
+                        return f"<div style='color:red;'>Chart rendering error: {err}</div>"
+
+                report_sections_html = ""
+
+                # CASE 3 Report content
+                if active_survey == "🏡 Socio-Economic Survey":
+                    c1_html = chart_to_html(fig_age_gen) if 'fig_age_gen' in locals() else ""
+                    c2_html = chart_to_html(fig_dep) if 'fig_dep' in locals() else ""
+                    c3_html = chart_to_html(fig_fam) if 'fig_fam' in locals() else ""
+                    c4_html = chart_to_html(fig_comp) if 'fig_comp' in locals() else ""
+                    c5_html = chart_to_html(fig_emp) if 'fig_emp' in locals() else ""
+                    c6_html = chart_to_html(fig_inc_earner) if 'fig_inc_earner' in locals() else ""
+                    c7_html = chart_to_html(fig_loc) if 'fig_loc' in locals() else ""
+                    c_inc_html = chart_to_html(fig_inc) if 'fig_inc' in locals() else ""
+                    c_house_html = chart_to_html(fig_house) if 'fig_house' in locals() else ""
+                    c_occ_html = chart_to_html(fig_occ) if 'fig_occ' in locals() else ""
+                    c_srv_html = chart_to_html(fig_srv) if 'fig_srv' in locals() else ""
+
+                    report_sections_html = f"""
+                    <!-- MODULE 1 -->
+                    <div class="report-section">
+                        <div class="section-badge">Module 1</div>
+                        <h2 class="section-title">👥 Demographics & Economic Dependency Analysis</h2>
+                        <p class="section-desc">Population pyramid brackets, gender participation, and household earner vulnerability index.</p>
+                        
+                        <div class="kpi-grid" style="grid-template-columns: repeat(5, 1fr);">
+                            <div class="kpi-card">
+                                <div class="kpi-title">Average Age</div>
+                                <div class="kpi-value">{avg_age}</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Dominant Family Size</div>
+                                <div class="kpi-value">{dominant_size}</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Critical Dependency Rate</div>
+                                <div class="kpi-value" style="color:#dc2626;">{crit_dep_pct:.1f}%</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Single-Earner HH</div>
+                                <div class="kpi-value" style="color:#d97706;">{single_earner_pct:.1f}%</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Female Representation</div>
+                                <div class="kpi-value">{female_pct:.1f}%</div>
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <div class="chart-title">Age Bracket & Gender Cross-Analysis</div>
+                                {c1_html}
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-title">Economic Dependency Burden Index</div>
+                                {c2_html}
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <div class="chart-title">Family Structure & Household Size</div>
+                                {c3_html}
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-title">Student Dependents vs. Breadwinners</div>
+                                {c4_html}
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <div class="chart-title">Gender vs. Employment Status</div>
+                                {c5_html}
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-title">Earner Capacity vs. Income Brackets</div>
+                                {c6_html}
+                            </div>
+                        </div>
+
+                        <div class="chart-row-full">
+                            <div class="chart-box">
+                                <div class="chart-title">Ward / Locality Critical Dependency Ranking</div>
+                                {c7_html}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MODULE 2 -->
+                    <div class="report-section" style="page-break-before: always;">
+                        <div class="section-badge">Module 2</div>
+                        <h2 class="section-title">🏡 Living Standards, WASH & Public Services</h2>
+                        <p class="section-desc">Basic infrastructure access (Electricity, Drinking Water, Sanitation) and public facility ratings.</p>
+
+                        <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+                            <div class="kpi-card">
+                                <div class="kpi-title">Electricity Access</div>
+                                <div class="kpi-value" style="color:#2563eb;">{elec_rate:.1f}%</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Piped Water Access</div>
+                                <div class="kpi-value" style="color:#0284c7;">{water_rate:.1f}%</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Private Toilet Sanitation</div>
+                                <div class="kpi-value" style="color:#059669;">{toilet_rate:.1f}%</div>
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <div class="chart-title">Monthly Household Income Distribution</div>
+                                {c_inc_html}
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-title">House Structural Types</div>
+                                {c_house_html}
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <div class="chart-title">Household Main Occupations</div>
+                                {c_occ_html}
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-title">Public Services Quality Ratings (1 to 5)</div>
+                                {c_srv_html}
+                            </div>
+                        </div>
+                    </div>
+                    """
+                elif active_survey.startswith("🌐"):
+                    cq_html = chart_to_html(fig_q_dist) if 'fig_q_dist' in locals() else ""
+                    report_sections_html = f"""
+                    <div class="report-section">
+                        <h2 class="section-title">📋 Combined Submissions Overview</h2>
+                        <p class="section-desc">Cross-questionnaire submission breakdown across all active survey instruments.</p>
+                        <div class="chart-row-full">
+                            <div class="chart-box">
+                                <div class="chart-title">Submissions by Questionnaire</div>
+                                {cq_html}
+                            </div>
+                        </div>
+                    </div>
+                    """
+                else:
+                    report_sections_html = f"""
+                    <div class="report-section">
+                        <h2 class="section-title">📋 Question-by-Question Analytics</h2>
+                        <p class="section-desc">Analysis covering {len(df_filtered)} submitted responses for {active_survey}.</p>
+                    </div>
+                    """
+
+                full_html_report = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Socio-Economic Survey Analytics Report - {active_survey}</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+        line-height: 1.5;
+        padding: 30px;
+    }}
+    .container {{
+        max-width: 1200px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        padding: 40px;
+        border: 1px solid #e2e8f0;
+    }}
+    .header-bar {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 24px;
+        margin-bottom: 30px;
+    }}
+    .header-title h1 {{
+        font-size: 26px;
+        font-weight: 700;
+        color: #0f172a;
+    }}
+    .header-title p {{
+        font-size: 14px;
+        color: #64748b;
+        margin-top: 4px;
+    }}
+    .print-btn {{
+        background: #0284c7;
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);
+    }}
+    .print-btn:hover {{
+        background: #0369a1;
+    }}
+    .kpi-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 30px;
+    }}
+    .kpi-card {{
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px 20px;
+        border-top: 4px solid #0284c7;
+    }}
+    .kpi-title {{
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.5px;
+    }}
+    .kpi-value {{
+        font-size: 26px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-top: 4px;
+    }}
+    .report-section {{
+        margin-top: 36px;
+        padding-top: 24px;
+        border-top: 1px dashed #cbd5e1;
+    }}
+    .section-badge {{
+        display: inline-block;
+        background: #e0f2fe;
+        color: #0369a1;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 4px;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+    }}
+    .section-title {{
+        font-size: 20px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 4px;
+    }}
+    .section-desc {{
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 20px;
+    }}
+    .chart-row {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 24px;
+    }}
+    .chart-row-full {{
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+        margin-bottom: 24px;
+    }}
+    .chart-box {{
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 18px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        page-break-inside: avoid;
+    }}
+    .chart-title {{
+        font-size: 14px;
+        font-weight: 600;
+        color: #334155;
+        margin-bottom: 12px;
+        border-left: 3px solid #0284c7;
+        padding-left: 8px;
+    }}
+    .footer {{
+        margin-top: 40px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 16px;
+        font-size: 12px;
+        color: #94a3b8;
+        display: flex;
+        justify-content: space-between;
+    }}
+
+    /* Print & PDF Export Styling */
+    @media print {{
+        body {{
+            background: #ffffff;
+            padding: 0;
+            color: #000000;
+        }}
+        .container {{
+            box-shadow: none;
+            border: none;
+            padding: 0;
+            max-width: 100%;
+        }}
+        .print-btn {{
+            display: none !important;
+        }}
+        .chart-box {{
+            box-shadow: none;
+            border: 1px solid #cbd5e1;
+            page-break-inside: avoid;
+        }}
+        .report-section {{
+            page-break-inside: avoid;
+        }}
+    }}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header-bar">
+        <div class="header-title">
+            <h1>📊 Socio-Economic Community Survey Analysis Dossier</h1>
+            <p>Active Questionnaire: <strong>{active_survey}</strong> | Generated: <strong>{now_str}</strong> | Account Scope: <strong>{account_scope}</strong></p>
+        </div>
+        <div>
+            <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+        </div>
+    </div>
+
+    <!-- Core Primary Executive KPIs -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Responses in View</div>
+            <div class="kpi-value">{tot_hh}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Photos Uploaded</div>
+            <div class="kpi-value">{tot_photos}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">GPS Tagged Rate</div>
+            <div class="kpi-value">{gps_rate:.1f}%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Filter Source</div>
+            <div class="kpi-value" style="font-size: 18px;">{data_source_trigger}</div>
+        </div>
+    </div>
+
+    {report_sections_html}
+
+    <div class="footer">
+        <div>Socio-Economic Community Survey Portal &copy; 2026. Confidential Field Telemetry.</div>
+        <div>Rendered via Antigravity Analytics Engine</div>
+    </div>
+</div>
+</body>
+</html>"""
+
+                st.session_state["cached_full_report_html"] = full_html_report
+                st.session_state["cached_report_time"] = now_str
+                st.success("✅ Executive Report generated successfully! Download or print below.")
+
+        if "cached_full_report_html" in st.session_state and st.session_state["cached_full_report_html"]:
+            safe_fname = re.sub(r'[^a-zA-Z0-9_\-]', '_', active_survey.replace(' ', '_'))
+            report_filename = f"Socio_Economic_Analysis_Report_{safe_fname}.html"
+            
+            c_dl1, c_dl2 = st.columns([2, 1])
+            with c_dl1:
+                st.info(f"📄 Report ready: **{report_filename}** (Generated {st.session_state.get('cached_report_time', '')}). Opens in any browser with interactive graphs, offline support, and one-click 'Print / Save as PDF'.")
+            with c_dl2:
+                st.download_button(
+                    label="💾 Download Full Report (HTML/PDF)",
+                    data=st.session_state["cached_full_report_html"],
+                    file_name=report_filename,
+                    mime="text/html",
+                    use_container_width=True,
+                    key="btn_download_full_report_ready"
+                )
 
 # ==============================================================================
 # TAB 3: GEOSPATIAL / GIS MAPPING
