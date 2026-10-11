@@ -821,6 +821,7 @@ RE_GPS = re.compile(r'\[GPS:\s*([+-]?\d+\.?\d*),\s*([+-]?\d+\.?\d*)\]')
 RE_SURVEYOR = re.compile(r'\[SURVEYOR:\s*([^\]]+)\]')
 RE_TITLE = re.compile(r'\[SURVEY_TITLE:\s*([^\]]+)\]')
 RE_PAYLOAD = re.compile(r'\[CUSTOM_PAYLOAD:\s*({.*?})\s*\]', re.DOTALL)
+RE_CSV_FILE = re.compile(r'\[CSV_FILE:\s*([^\]]+)\]|Imported from CSV \(([^)]+)\)', re.IGNORECASE)
 
 def parse_gps(notes):
     if not isinstance(notes, str):
@@ -886,6 +887,7 @@ def fetch_all_responses():
                 surveyors = []
                 titles = []
                 payloads = []
+                csv_files = []
 
                 has_data_source = "data_source" in df.columns
                 for _, row in df.iterrows():
@@ -930,12 +932,20 @@ def fetch_all_responses():
                     else:
                         payloads.append({})
 
+                    # 7. Imported CSV File Name
+                    m_csv = RE_CSV_FILE.search(notes)
+                    if m_csv:
+                        csv_files.append((m_csv.group(1) or m_csv.group(2) or "").strip())
+                    else:
+                        csv_files.append("")
+
                 df["source_type"] = sources
                 df["is_draft"] = drafts
                 df["gps_coordinates"] = gps_strs
                 df["surveyor_email"] = surveyors
                 df["survey_name"] = titles
                 df["custom_payload"] = payloads
+                df["imported_csv"] = csv_files
 
                 # Standardize column naming: primary_occupation -> household_main_occupation
                 if "primary_occupation" in df.columns:
@@ -998,6 +1008,41 @@ def delete_survey_record(record_id):
             except Exception:
                 pass
         return succ
+
+def delete_multiple_survey_records(record_ids):
+    """Deletes multiple survey records by their IDs from Supabase in batches."""
+    if not record_ids:
+        return True
+    success = True
+    batch_size = 40
+    valid_ids = [str(cid) for cid in record_ids if cid]
+    for i in range(0, len(valid_ids), batch_size):
+        chunk = valid_ids[i:i + batch_size]
+        if not chunk:
+            continue
+        ids_param = ",".join(chunk)
+        url = f"{SUPABASE_URL}/rest/v1/survey_responses?id=in.({ids_param})"
+        headers = {
+            "apikey": SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SERVICE_ROLE_KEY}"
+        }
+        req = urllib.request.Request(url, headers=headers, method="DELETE")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status not in [200, 204]:
+                    success = False
+        except Exception:
+            # Fallback to individual deletion if batch URL fails
+            for cid in chunk:
+                try:
+                    delete_survey_record(cid)
+                except Exception:
+                    success = False
+    try:
+        fetch_all_responses.clear()
+    except Exception:
+        pass
+    return success
 
 # ==============================================================================
 # AUTHENTICATION SCREEN (LOGIN PAGE)
@@ -1490,14 +1535,29 @@ with nav_tab1:
         if entry_mode == "📋 Enter / Import Google Form Data":
             st.info("📋 **Google Form Data Entry**: You can upload an exported Google Form responses CSV or manually submit responses collected from Google Forms.")
         
-            uploaded_csv = st.file_uploader("📥 Upload Google Form Responses CSV File", type=["csv"])
+            if "csv_upload_key" not in st.session_state:
+                st.session_state.csv_upload_key = 0
+
+            uploaded_csv = st.file_uploader(
+                "📥 Upload Google Form Responses CSV File", 
+                type=["csv"], 
+                key=f"uploader_gform_csv_{st.session_state.csv_upload_key}"
+            )
             if uploaded_csv is not None:
                 try:
                     csv_df = pd.read_csv(uploaded_csv)
                     st.write(f"Detected **{len(csv_df)}** rows in CSV:")
                     st.dataframe(csv_df.head(3), use_container_width=True)
                 
-                    if st.button(f"⬆️ Import & Sync {len(csv_df)} Google Form Responses to Supabase", type="primary"):
+                    col_imp1, col_imp2 = st.columns([2, 1])
+                    with col_imp1:
+                        btn_import = st.button(f"⬆️ Import & Sync {len(csv_df)} Google Form Responses to Supabase", type="primary", use_container_width=True)
+                    with col_imp2:
+                        if st.button("❌ Remove Uploaded File", use_container_width=True):
+                            st.session_state.csv_upload_key += 1
+                            st.rerun()
+
+                    if btn_import:
                         with st.spinner("Syncing Google Form records to Supabase..."):
                             success_count = 0
                             for _, row in csv_df.iterrows():
@@ -1539,18 +1599,51 @@ with nav_tab1:
                                     "biggest_problems": ["Waste management"],
                                     "highest_priority_improvement": ["Roads and transport"],
                                     "photo_urls": [],
-                                    "surveyor_notes": f"[SOURCE: Google Form] [SURVEYOR: {st.session_state.user_email.strip()}] Imported from CSV ({uploaded_csv.name})"
+                                    "surveyor_notes": f"[SOURCE: Google Form] [SURVEYOR: {st.session_state.user_email.strip()}] [CSV_FILE: {uploaded_csv.name}] Imported from CSV ({uploaded_csv.name})"
                                 }
                                 try:
                                     insert_survey_record(g_record)
                                     success_count += 1
                                 except Exception:
                                     pass
-                            st.success(f"✅ Successfully imported and uploaded {success_count} Google Form records to Supabase!")
+                            st.success(f"✅ Successfully imported and uploaded {success_count} Google Form records to Supabase from '{uploaded_csv.name}'!")
                             st.cache_data.clear()
                             st.rerun()
                 except Exception as e:
                     st.error(f"Error reading CSV: {e}")
+
+            # --- MANAGE & DELETE PREVIOUSLY IMPORTED CSV BATCHES IN TAB 1 ---
+            csv_records_t1 = df_filtered[df_filtered["source_type"] == "Google Form"].copy() if (not df_filtered.empty and "source_type" in df_filtered.columns) else pd.DataFrame()
+            if not csv_records_t1.empty:
+                known_csv_t1 = {}
+                for _, r in csv_records_t1.iterrows():
+                    fn = str(r.get("imported_csv", "")).strip()
+                    if not fn:
+                        fn = "Google Form Import (Manual/Unspecified CSV)"
+                    if fn not in known_csv_t1:
+                        known_csv_t1[fn] = []
+                    known_csv_t1[fn].append(r["id"])
+
+                with st.expander("🗑️ Delete Uploaded CSV Records / Batches", expanded=False):
+                    st.caption("Need to remove a previously uploaded CSV file or undo an import? Select the file below to delete all its records in one click.")
+                    csv_to_remove = st.selectbox(
+                        "Choose uploaded CSV file to delete:",
+                        options=list(known_csv_t1.keys()),
+                        format_func=lambda x: f"📄 {x} ({len(known_csv_t1[x])} records in database)",
+                        key="sel_csv_to_remove_t1"
+                    )
+                    del_ids = known_csv_t1[csv_to_remove]
+                    st.warning(f"⚠️ This will permanently delete all **{len(del_ids)}** records that came from `{csv_to_remove}`.")
+                    conf_del_csv = st.checkbox(f"I confirm deletion of all {len(del_ids)} records from '{csv_to_remove}'", key=f"conf_del_csv_t1_{csv_to_remove}")
+                    if st.button(f"🚨 Delete All Records from '{csv_to_remove}'", type="primary", disabled=not conf_del_csv, use_container_width=True, key="btn_del_csv_t1"):
+                        with st.spinner(f"Deleting {len(del_ids)} records from Supabase..."):
+                            if delete_multiple_survey_records(del_ids):
+                                st.success(f"🗑️ Successfully deleted all {len(del_ids)} records from '{csv_to_remove}'!")
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete some records from Supabase.")
 
             st.markdown("---")
             st.subheader("Or Manually Enter a Single Google Form Response")
@@ -2959,6 +3052,70 @@ with nav_tab5:
                                 st.rerun()
                             else:
                                 st.error("Failed to delete record from Supabase.")
+
+            # --- BATCH DELETE SECTION (BY CSV FILE OR MULTI-SELECT) ---
+            st.markdown("---")
+            with st.expander("🗑️ Batch Delete Records (By Uploaded CSV File or Selection)", expanded=False):
+                st.markdown("#### 🗑️ Delete Uploaded CSV Batches or Multiple Records")
+                st.caption("Quickly remove bulk-imported CSV files or select multiple surveys to delete at once.")
+
+                all_csv_records = df_filtered[df_filtered["source_type"] == "Google Form"].copy() if "source_type" in df_filtered.columns else pd.DataFrame()
+                csv_file_batches = {}
+                if not all_csv_records.empty:
+                    for _, r in all_csv_records.iterrows():
+                        cf = str(r.get("imported_csv", "")).strip()
+                        if not cf:
+                            cf = "Google Form Import (Manual/Unspecified File)"
+                        if cf not in csv_file_batches:
+                            csv_file_batches[cf] = []
+                        csv_file_batches[cf].append(r["id"])
+
+                tab_del_csv, tab_del_multi = st.tabs(["📄 Delete by Uploaded CSV File", "☑️ Multi-Select Records to Delete"])
+
+                with tab_del_csv:
+                    if not csv_file_batches:
+                        st.info("ℹ️ No CSV-imported records found in the current view.")
+                    else:
+                        sel_batch_name = st.selectbox(
+                            "Choose CSV file import batch to delete:",
+                            options=list(csv_file_batches.keys()),
+                            format_func=lambda x: f"📄 {x} ({len(csv_file_batches[x])} records in database)",
+                            key="sel_batch_name_t5"
+                        )
+                        b_ids = csv_file_batches[sel_batch_name]
+                        st.warning(f"⚠️ This will permanently remove all **{len(b_ids)}** records imported from `{sel_batch_name}`.")
+                        conf_batch = st.checkbox(f"Confirm deletion of all {len(b_ids)} records from '{sel_batch_name}'", key=f"conf_batch_t5_{sel_batch_name}")
+                        if st.button(f"🚨 Delete All {len(b_ids)} Records from '{sel_batch_name}'", type="primary", disabled=not conf_batch, use_container_width=True, key="btn_del_csv_batch_t5"):
+                            with st.spinner(f"Deleting {len(b_ids)} records from Supabase..."):
+                                if delete_multiple_survey_records(b_ids):
+                                    st.success(f"🗑️ Successfully deleted all {len(b_ids)} records from '{sel_batch_name}'!")
+                                    st.cache_data.clear()
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete some records from Supabase.")
+
+                with tab_del_multi:
+                    multi_options = {f"{r['full_name']} — {r['locality']} (ID: {str(r['id'])[:8]}...)": r['id'] for _, r in df_filtered.iterrows()}
+                    selected_multi_labels = st.multiselect(
+                        "Select one or more records to delete together:",
+                        options=list(multi_options.keys()),
+                        placeholder="Choose records...",
+                        key="ms_del_records_t5"
+                    )
+                    if selected_multi_labels:
+                        m_del_ids = [multi_options[lbl] for lbl in selected_multi_labels]
+                        st.warning(f"⚠️ Selected **{len(m_del_ids)}** records for permanent deletion.")
+                        conf_multi = st.checkbox(f"Confirm permanent deletion of {len(m_del_ids)} selected records", key="conf_multi_del_t5")
+                        if st.button(f"🚨 Delete {len(m_del_ids)} Selected Records", type="primary", disabled=not conf_multi, use_container_width=True, key="btn_del_multi_t5"):
+                            with st.spinner(f"Deleting {len(m_del_ids)} records from Supabase..."):
+                                if delete_multiple_survey_records(m_del_ids):
+                                    st.success(f"🗑️ Successfully deleted {len(m_del_ids)} records!")
+                                    st.cache_data.clear()
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete some records from Supabase.")
         else:
             st.info("No records to display or manage.")
 
