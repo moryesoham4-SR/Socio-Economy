@@ -2378,6 +2378,261 @@ with nav_tab2:
 
         # CASE 3: Socio-Economic Survey Selected
         else:
+            # ------------------------------------------------------------------
+            # MODULE 1: 👥 DEMOGRAPHICS & ECONOMIC DEPENDENCY ANALYSIS
+            # ------------------------------------------------------------------
+            st.markdown("### 👥 Module 1: Demographics & Economic Dependency Analysis")
+            st.caption("Deep-dive analytics exploring population structure, age distributions, gender representation, and household economic vulnerability.")
+
+            # Data Preparation for Demographics & Dependency
+            # 1. Clean Age
+            df_dem = df_filtered.copy()
+            df_dem['age_num'] = pd.to_numeric(df_dem['age'], errors='coerce')
+            
+            # Age Bracket Categorization
+            def categorize_age(a):
+                if pd.isna(a):
+                    return "Unknown"
+                if a < 25:
+                    return "Youth (<25)"
+                elif a <= 59:
+                    return "Working Age (25–59)"
+                else:
+                    return "Senior Citizens (60+)"
+            df_dem['age_bracket'] = df_dem['age_num'].apply(categorize_age)
+
+            # 2. Household Members Numeric Mapping
+            hh_map = {
+                "1 to 2": 2,
+                "3 to 4": 4,
+                "5 to 6": 6,
+                "7 to 8": 8,
+                "More than 8": 9
+            }
+            def parse_hh_size(val):
+                if pd.isna(val):
+                    return 4
+                s_val = str(val).strip()
+                if s_val in hh_map:
+                    return hh_map[s_val]
+                nums = re.findall(r'\d+', s_val)
+                return int(nums[0]) if nums else 4
+            df_dem['hh_size_num'] = df_dem['household_members'].apply(parse_hh_size)
+
+            # 3. Earning Members & Students Numeric
+            def parse_int_field(val, default=1):
+                if pd.isna(val):
+                    return default
+                nums = re.findall(r'\d+', str(val))
+                return int(nums[0]) if nums else default
+            df_dem['earners_num'] = df_dem['earning_members'].apply(lambda x: parse_int_field(x, 1))
+            df_dem['students_num'] = df_dem['members_studying'].apply(lambda x: parse_int_field(x, 0))
+
+            # 4. Dependency Classification
+            def classify_dependency(row):
+                earners = row['earners_num']
+                h_size = row['hh_size_num']
+                if earners <= 1 and h_size >= 5:
+                    return "🔴 Critical Dependency (5+ on 1 earner)"
+                elif (earners <= 1 and h_size >= 3) or (earners == 2 and h_size >= 6):
+                    return "🟠 Moderate Dependency"
+                else:
+                    return "🟢 Balanced / Low Dependency"
+            df_dem['dependency_tier'] = df_dem.apply(classify_dependency, axis=1)
+
+            # 5. Family Structure Categories
+            def categorize_family_structure(val):
+                s = str(val).strip()
+                if s == "1 to 2":
+                    return "Small Nuclear (1–2)"
+                elif s == "3 to 4":
+                    return "Standard Nuclear (3–4)"
+                elif s in ["5 to 6", "7 to 8"]:
+                    return "Joint Family (5–8)"
+                elif s == "More than 8":
+                    return "Large Extended (8+)"
+                return "Standard Nuclear (3–4)"
+            df_dem['family_structure'] = df_dem['household_members'].apply(categorize_family_structure)
+
+            # --- Module 1 KPI Metric Cards ---
+            valid_ages = df_dem['age_num'].dropna()
+            avg_age = f"{valid_ages.mean():.1f} yrs" if not valid_ages.empty else "N/A"
+            dominant_size = df_dem['household_members'].mode()[0] if not df_dem['household_members'].empty and not pd.isna(df_dem['household_members'].mode().iloc[0]) else "3 to 4"
+            
+            crit_dep_cnt = (df_dem['dependency_tier'] == "🔴 Critical Dependency (5+ on 1 earner)").sum()
+            crit_dep_pct = (crit_dep_cnt / len(df_dem) * 100) if len(df_dem) > 0 else 0
+            
+            single_earner_cnt = (df_dem['earners_num'] <= 1).sum()
+            single_earner_pct = (single_earner_cnt / len(df_dem) * 100) if len(df_dem) > 0 else 0
+            
+            female_cnt = (df_dem['gender'].astype(str).str.strip().str.lower() == 'female').sum()
+            female_pct = (female_cnt / len(df_dem) * 100) if len(df_dem) > 0 else 0
+
+            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+            kpi1.metric("🎂 Avg Age", avg_age)
+            kpi2.metric("👨‍👩‍👧‍👦 Dominant Size", str(dominant_size))
+            kpi3.metric("⚠️ Critical Dependency", f"{crit_dep_pct:.1f}%", help="Households with 5+ members supported by only 1 earner")
+            kpi4.metric("💼 Single-Earner HH", f"{single_earner_pct:.1f}%", help="Households relying entirely on a single breadwinner")
+            kpi5.metric("👩 Female Repr.", f"{female_pct:.1f}%", help="Proportion of female respondents surveyed")
+
+            st.write("")
+
+            # --- Chart 1 & Chart 2 ---
+            dem_c1, dem_c2 = st.columns(2)
+            with dem_c1:
+                st.subheader("👥 Age Bracket & Gender Cross-Analysis")
+                st.caption("Distribution of respondents across youth, working age, and senior cohorts grouped by gender.")
+                age_gen_df = df_dem[df_dem['age_bracket'] != 'Unknown'].groupby(['age_bracket', 'gender']).size().reset_index(name='Respondents')
+                if not age_gen_df.empty:
+                    bracket_order = ["Youth (<25)", "Working Age (25–59)", "Senior Citizens (60+)"]
+                    fig_age_gen = px.bar(
+                        age_gen_df,
+                        x='age_bracket',
+                        y='Respondents',
+                        color='gender',
+                        barmode='group',
+                        category_orders={'age_bracket': bracket_order},
+                        color_discrete_sequence=['#3b82f6', '#ec4899', '#10b981'],
+                        template=plotly_template
+                    )
+                    render_chart(fig_age_gen)
+                else:
+                    st.info("No age/gender data available.")
+
+            with dem_c2:
+                st.subheader("⚠️ Economic Dependency Burden Index")
+                st.caption("Categorization of households based on earner-to-dependent pressure.")
+                dep_counts = df_dem['dependency_tier'].value_counts().reset_index()
+                dep_counts.columns = ['Dependency Tier', 'Households']
+                color_map = {
+                    "🔴 Critical Dependency (5+ on 1 earner)": "#ef4444",
+                    "🟠 Moderate Dependency": "#f59e0b",
+                    "🟢 Balanced / Low Dependency": "#10b981"
+                }
+                fig_dep = px.pie(
+                    dep_counts,
+                    names='Dependency Tier',
+                    values='Households',
+                    hole=0.45,
+                    color='Dependency Tier',
+                    color_discrete_map=color_map,
+                    template=plotly_template
+                )
+                render_chart(fig_dep)
+
+            # --- Chart 3 & Chart 4 ---
+            dem_c3, dem_c4 = st.columns(2)
+            with dem_c3:
+                st.subheader("👨‍👩‍👧‍👦 Family Structure & Household Size")
+                st.caption("Classification into Nuclear, Joint, and Large Extended family units.")
+                fam_counts = df_dem['family_structure'].value_counts().reset_index()
+                fam_counts.columns = ['Structure', 'Households']
+                fam_order = ["Small Nuclear (1–2)", "Standard Nuclear (3–4)", "Joint Family (5–8)", "Large Extended (8+)"]
+                fig_fam = px.bar(
+                    fam_counts,
+                    x='Structure',
+                    y='Households',
+                    color='Households',
+                    category_orders={'Structure': fam_order},
+                    color_continuous_scale='Blues',
+                    text='Households',
+                    template=plotly_template
+                )
+                render_chart(fig_fam)
+
+            with dem_c4:
+                st.subheader("📚 Student Dependents vs. Breadwinners")
+                st.caption("Comparison of schooling children supported against active earning members per household.")
+                comp_df = df_dem[['earners_num', 'students_num']].copy()
+                comp_melted = comp_df.melt(var_name='Member Type', value_name='Count')
+                comp_melted['Member Type'] = comp_melted['Member Type'].map({'earners_num': '💼 Earning Members', 'students_num': '📚 Students in School'})
+                avg_comp = comp_melted.groupby('Member Type')['Count'].mean().reset_index()
+                fig_comp = px.bar(
+                    avg_comp,
+                    x='Member Type',
+                    y='Count',
+                    color='Member Type',
+                    color_discrete_sequence=['#0284c7', '#8b5cf6'],
+                    text=avg_comp['Count'].apply(lambda x: f"{x:.2f} per HH"),
+                    template=plotly_template
+                )
+                fig_comp.update_layout(yaxis_title="Average per Household", showlegend=False)
+                render_chart(fig_comp)
+
+            # --- Chart 5 & Chart 6 ---
+            dem_c5, dem_c6 = st.columns(2)
+            with dem_c5:
+                st.subheader("💼 Gender vs. Employment Status")
+                st.caption("Workforce participation and employment breakdown by gender.")
+                if 'employment_status' in df_dem.columns:
+                    emp_gen = df_dem.groupby(['employment_status', 'gender']).size().reset_index(name='Count')
+                    fig_emp = px.bar(
+                        emp_gen,
+                        y='employment_status',
+                        x='Count',
+                        color='gender',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_sequence=['#3b82f6', '#ec4899', '#10b981'],
+                        template=plotly_template
+                    )
+                    fig_emp.update_layout(yaxis_title="Employment Status", xaxis_title="Count")
+                    render_chart(fig_emp)
+                else:
+                    st.info("Employment status not recorded.")
+
+            with dem_c6:
+                st.subheader("💰 Earner Capacity vs. Income Brackets")
+                st.caption("Single-earner vs. Multi-earner concentration across income levels.")
+                df_dem['earner_type'] = df_dem['earners_num'].apply(lambda e: "Single Breadwinner (1)" if e <= 1 else "Multi-Earner (2+)")
+                inc_earner = df_dem.groupby(['monthly_income', 'earner_type']).size().reset_index(name='Households')
+                fig_inc_earner = px.bar(
+                    inc_earner,
+                    x='monthly_income',
+                    y='Households',
+                    color='earner_type',
+                    barmode='group',
+                    color_discrete_sequence=['#f97316', '#06b6d4'],
+                    template=plotly_template
+                )
+                fig_inc_earner.update_layout(xaxis_tickangle=-30, xaxis_title="Income Bracket")
+                render_chart(fig_inc_earner)
+
+            # --- Chart 7: Locality / Ward-wise Dependency Ranking ---
+            st.subheader("📍 Ward / Locality Vulnerability & Dependency Ranking")
+            st.caption("Geographic comparison of household size and critical single-earner dependency rates across survey localities.")
+            loc_col = 'locality' if 'locality' in df_dem.columns else 'ward'
+            if loc_col in df_dem.columns and df_dem[loc_col].notna().any():
+                loc_grp = df_dem.groupby(loc_col).agg(
+                    Total_HH=('hh_size_num', 'count'),
+                    Avg_HH_Size=('hh_size_num', 'mean'),
+                    Critical_Dep_HH=('dependency_tier', lambda s: (s == "🔴 Critical Dependency (5+ on 1 earner)").sum())
+                ).reset_index()
+                loc_grp['Critical_Dep_Rate_%'] = (loc_grp['Critical_Dep_HH'] / loc_grp['Total_HH'] * 100).round(1)
+                loc_grp = loc_grp.sort_values(by='Critical_Dep_Rate_%', ascending=False)
+                
+                fig_loc = px.bar(
+                    loc_grp.head(15),
+                    x=loc_col,
+                    y='Critical_Dep_Rate_%',
+                    color='Critical_Dep_Rate_%',
+                    color_continuous_scale='Reds',
+                    text=loc_grp.head(15)['Critical_Dep_Rate_%'].apply(lambda x: f"{x:.1f}%"),
+                    template=plotly_template
+                )
+                fig_loc.update_layout(xaxis_tickangle=-30, yaxis_title="Critical Dependency Rate (%)")
+                render_chart(fig_loc)
+            else:
+                st.info("Locality or ward information not available for ranking.")
+
+            st.divider()
+
+            # ------------------------------------------------------------------
+            # MODULE 2: 🏡 LIVING STANDARDS, WASH & PUBLIC SERVICES
+            # ------------------------------------------------------------------
+            st.markdown("### 🏡 Module 2: Living Standards, WASH & Public Services")
+            st.caption("Infrastructure, basic amenities access (Water, Sanitation, Hygiene), and public services satisfaction.")
+
             elec_rate = (df_filtered['has_electricity'] == 'Yes').mean() * 100 if tot_hh > 0 else 0
             water_rate = (df_filtered['drinking_water_source'] == 'Tap water').mean() * 100 if tot_hh > 0 else 0
             toilet_rate = (df_filtered['toilet_access'] == 'Private toilet').mean() * 100 if tot_hh > 0 else 0
@@ -2387,7 +2642,7 @@ with nav_tab2:
             row2_c2.metric("Piped Water Access", f"{water_rate:.1f}%")
             row2_c3.metric("Private Toilet Sanitation", f"{toilet_rate:.1f}%")
 
-            st.divider()
+            st.write("")
 
             ca1, ca2 = st.columns(2)
             with ca1:
